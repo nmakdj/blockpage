@@ -4,11 +4,10 @@
 <meta charset="UTF-8">
 <title>ספירה לאחור</title>
 <style>
-  /* טוען את הגופן מהתיקיה המקומית */
+  /* טוען את הגופן FtPilKahol2 בלבד */
   @font-face {
-    font-family: 'Egotrip';
-    src: local('Egotrip'),
-         url('FtPilKahol2.woff2') format('woff2');
+    font-family: 'FtPilKahol2';
+    src: url('FtPilKahol2.woff2') format('woff2');
     font-weight: normal;
     font-style: normal;
   }
@@ -18,14 +17,14 @@
     height: 100vh;
     display: flex;
     justify-content: center;
-    align-items: flex-end; /* מציב את הטקסט למטה */
-    padding-bottom: 1px; /* רווח מהתחתית */
+    align-items: flex-end; /* שם את הטקסט למטה */
+    padding-bottom: 40px; /* רווח מהתחתית */
     background-image: url('2.png');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     color: gold;
-    font-family: 'Egotrip', monospace; /* שניהם ייקראו אותו דבר */
+    font-family: 'FtPilKahol2'; /* ← רק הפונט הזה */
     text-align: center;
   }
 
@@ -71,4 +70,3 @@
   </script>
 </body>
 </html>
-

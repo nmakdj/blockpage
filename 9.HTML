@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>ספירה לאחור</title>
 <style>
-  /* טוען את הגופן FtPilKahol2 בלבד */
   @font-face {
     font-family: 'FtPilKahol2';
     src: url('FtPilKahol2.woff2') format('woff2');
@@ -15,20 +14,21 @@
   body {
     margin: 0;
     height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: flex-end; /* שם את הטקסט למטה */
-    padding-bottom: 2px; /* רווח מהתחתית */
     background-image: url('2.png');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     color: gold;
-    font-family: 'FtPilKahol2'; /* ← רק הפונט הזה */
+    font-family: 'FtPilKahol2';
     text-align: center;
+    position: relative;
   }
 
   h1 {
+    position: absolute;
+    bottom: 40px; /* מרחק מהתחתית - אפשר לשנות */
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 175px;
     color: rgb(202,176,105);
     text-shadow: 2px 2px 5px black;
@@ -70,4 +70,3 @@
   </script>
 </body>
 </html>
-

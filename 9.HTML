@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<title>ספירה לאחור יונתן&רינה</title>
+<style>
+  /* טוען את הגופן מהתיקיה המקומית */
+  @font-face {
+    font-family: 'Egotrip';
+    src: url('FtPilKahol2.woff2') format('woff2'),
+         local('Egotrip');
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding-bottom: 60px; /* ↓ מוריד את הטקסט למטה */
+    background-image: url('2.png'); /* תמונה בתיקיה */
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    color: gold;
+    font-family: 'Egotrip', monospace; /* קודם מנסה את הגופן המקומי */
+    text-align: center;
+  }
+
+  h1 {
+    font-size: 175px;
+    color: rgb(202,176,105);
+    text-shadow: 2px 2px 5px black;
+  }
+</style>
+</head>
+<body>
+  <h1 id="countdown"></h1>
+
+  <script>
+    const targetDate = new Date("2025-12-11T19:00:00").getTime();
+
+    function pad(n) {
+      return n.toString().padStart(2, '0');
+    }
+
+    function updateCountdown() {
+      const now = new Date().getTime();
+      let distance = targetDate - now;
+
+      if (distance < 0) {
+        document.getElementById("countdown").innerHTML = "00:00:00:00";
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      distance %= (1000 * 60 * 60 * 24);
+      const hours = Math.floor(distance / (1000 * 60 * 60));
+      distance %= (1000 * 60 * 60);
+      const minutes = Math.floor(distance / (1000 * 60));
+      distance %= (1000 * 60);
+      const seconds = Math.floor(distance / 1000);
+
+      document.getElementById("countdown").innerHTML =
+        pad(days) + ":" + pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+    }
+
+    setInterval(updateCountdown, 1000);
+  </script>
+</body>
+</html>

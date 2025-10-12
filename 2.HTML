@@ -4,25 +4,35 @@
 <meta charset="UTF-8">
 <title>ספירה לאחור</title>
 <style>
+  /* הגדרת הגופן המקומי */
+  @font-face {
+    font-family: 'Egotrip';
+    src: url('Egotrip.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+
   body {
     margin: 0;
     height: 100vh;
     display: flex;
     justify-content: center;
-    align-items: flex-end;
+    align-items: flex-end; /* קצת למטה */
+    padding-bottom: 150px; /* מרחק מהתחתית */
     background-image: url('2.png'); /* תמונה בתיקיה */
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    color: gold;
     font-family: 'Egotrip', monospace; /* גופן דיגיטלי */
     text-align: center;
+    color: gold;
   }
 
   h1 {
     font-size: 175px;
-  color: rgb(202,176,105); /* צבע אחיד */
+    color: rgb(202,176,105); /* צבע אחיד */
     text-shadow: 2px 2px 5px black;
+    font-family: 'Egotrip', monospace;
   }
 </style>
 </head>
@@ -30,10 +40,10 @@
   <h1 id="countdown"></h1>
 
   <script>
-const targetDate = new Date("2025-12-11T19:00:00").getTime();
+    const targetDate = new Date("2025-12-21T07:00:00").getTime(); // תאריך ושעה
 
     function pad(n) {
-      return n.toString().padStart(2, '0'); // מוסיף אפס אם צריך
+      return n.toString().padStart(2, '0'); // מוסיף אפס לפני מספר חד ספרתי
     }
 
     function updateCountdown() {

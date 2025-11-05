@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<title>ספירה לאחור חיים&תמר</title>
+<style>
+  @font-face {
+    font-family: 'FtPilKahol2';
+    src: url('FtPilKahol2.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  body {
+    margin: 0;
+    height: 100vh;
+    background-image: url('8.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    color: gold;
+    font-family: 'FtPilKahol2';
+    text-align: center;
+    position: relative;
+  }
+
+  h1 {
+    position: fixed;
+    bottom: 5px; 
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 95px;
+    color: rgb(202,176,105);
+    text-shadow: 2px 2px 5px black;
+  }
+</style>
+</head>
+<body>
+  <h1 id="countdown"></h1>
+
+  <script>
+    const targetDate = new Date("2026-01-05T19:00:00").getTime();
+
+    function pad(n) {
+      return n.toString().padStart(2, '0');
+    }
+
+    function updateCountdown() {
+      const now = new Date().getTime();
+      let distance = targetDate - now;
+
+      if (distance < 0) {
+        document.getElementById("countdown").innerHTML = "00:00:00:00";
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      distance %= (1000 * 60 * 60 * 24);
+      const hours = Math.floor(distance / (1000 * 60 * 60));
+      distance %= (1000 * 60 * 60);
+      const minutes = Math.floor(distance / (1000 * 60));
+      distance %= (1000 * 60);
+      const seconds = Math.floor(distance / 1000);
+
+      document.getElementById("countdown").innerHTML =
+        pad(days) + ":" + pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+    }
+
+    setInterval(updateCountdown, 1000);
+  </script>
+</body>
+</html>
+
+
+
+

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>ספירה לאחור מוישי&amp;שבי</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    @font-face {
+      font-family: 'FtPilKahol2';
+      src: url('FtPilKahol2.woff2') format('woff2');
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      background-image: url('9.png');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      color: gold;
+      font-family: 'FtPilKahol2', system-ui, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      padding-bottom: 15px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 🔆 שכבת אור זוהר על המסך */
+    .glow-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 80%, rgba(255, 255, 200, 0.25), transparent 60%);
+      mix-blend-mode: screen;
+      opacity: 0.0;
+      animation: glowPulse 6s ease-in-out infinite alternate;
+      z-index: 0;
+    }
+
+    @keyframes glowPulse {
+      0%   { opacity: 0.1; }
+      50%  { opacity: 0.35; }
+      100% { opacity: 0.15; }
+    }
+
+    /* ✨ שכבת ניצוצות */
+    .sparkles {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .sparkles span {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fffde7, #ffd966, transparent);
+      box-shadow: 0 0 8px rgba(255, 255, 200, 0.9);
+      opacity: 0;
+      animation: sparkle 5s linear infinite;
+    }
+
+    /* כמה ניצוצות במקומות שונים */
+    .sparkles span:nth-child(1)  { top: 10%; left: 15%; animation-delay: 0s;   }
+    .sparkles span:nth-child(2)  { top: 25%; left: 40%; animation-delay: 1s;   }
+    .sparkles span:nth-child(3)  { top: 35%; left: 70%; animation-delay: 2.2s; }
+    .sparkles span:nth-child(4)  { top: 55%; left: 20%; animation-delay: 3s;   }
+    .sparkles span:nth-child(5)  { top: 65%; left: 60%; animation-delay: 1.7s; }
+    .sparkles span:nth-child(6)  { top: 80%; left: 80%; animation-delay: 2.8s; }
+    .sparkles span:nth-child(7)  { top: 15%; left: 85%; animation-delay: 3.6s; }
+    .sparkles span:nth-child(8)  { top: 45%; left: 10%; animation-delay: 4.1s; }
+
+    @keyframes sparkle {
+      0%   { transform: scale(0);   opacity: 0; }
+      20%  { transform: scale(1);   opacity: 1; }
+      50%  { transform: scale(1.3); opacity: 1; }
+      80%  { transform: scale(0.8); opacity: 0.6; }
+      100% { transform: scale(0);   opacity: 0; }
+    }
+
+    /* 🔤 שכבת המילים/אותיות */
+    .fx-letters {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 2;
+    }
+
+    .fx-letters span {
+      position: absolute;
+      font-family: system-ui, Kapriza; /* גופן אחר מהמונים */
+      font-weight: 900;
+      font-size: clamp(45px, 8vw, 120px);
+      color: rgba(255,255,255,0.9);
+      text-shadow: 4px 4px 10px black;
+      white-space: nowrap;
+      opacity: 0;
+    }
+
+    /* צבעים שונים */
+    .fx-letters span:nth-child(3n)   { color: #ffd37e; }
+    .fx-letters span:nth-child(3n+1) { color: #ffb1f3; }
+    .fx-letters span:nth-child(3n+2) { color: #9cd3ff; }
+
+    /* מלמטה למעלה */
+    .fx-letters span.move-up {
+      animation: floatUp 12s linear infinite;
+    }
+
+    /* מהצדדים */
+    .fx-letters span.move-side {
+      animation: floatSide 10s ease-in-out infinite;
+    }
+
+    @keyframes floatUp {
+      0%   { transform: translateY(0) rotate(0deg); opacity: 0; }
+      10%  { opacity: 1; }
+      40%  { transform: translateY(-40vh) rotate(10deg); }
+      70%  { transform: translateY(-80vh) rotate(-10deg); opacity: 1; }
+      100% { transform: translateY(-120vh) rotate(20deg); opacity: 0; }
+    }
+
+    @keyframes floatSide {
+      0%   { transform: translateX(0) rotate(0deg); opacity: 0; }
+      10%  { opacity: 1; }
+      40%  { transform: translateX(-20vw) rotate(8deg); }
+      60%  { transform: translateX(20vw) rotate(-12deg); opacity: 1; }
+      90%  { transform: translateX(-40vw) rotate(20deg); }
+      100% { opacity: 0; }
+    }
+
+    /* 🖼 שכבה לתמונות מעופפות */
+    .fx-images {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 2;
+    }
+
+    .fx-images img {
+      position: absolute;
+      width: 70px;      /* גודל התמונה – אפשר לשנות */
+      height: auto;
+      opacity: 0;
+      filter: drop-shadow(0 0 10px rgba(0,0,0,0.7));
+      animation: floatImg 14s linear infinite;
+    }
+
+    /* אפשר להשתמש באותם keyframes או אחרים */
+    @keyframes floatImg {
+      0%   { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0; }
+      10%  { opacity: 1; }
+      50%  { transform: translateY(-50vh) translateX(20px) rotate(15deg); }
+      80%  { opacity: 1; }
+      100% { transform: translateY(-110vh) translateX(-20px) rotate(-15deg); opacity: 0; }
+    }
+
+    /* המסגרת של הטיימר */
+    .countdown-wrapper {
+      background: rgba(0,0,0,0.45);
+      border-radius: 18px;
+      padding: 10px 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 3; /* מעל הכל */
+      position: relative;
+    }
+
+    .time-box {
+      min-width: 70px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.35);
+    }
+
+    .num {
+      font-size: clamp(30px,8vw,70px);
+      color: rgb(202,176,105);
+      text-shadow: 2px 2px 5px black;
+      animation: glow 2s infinite alternate;
+      letter-spacing: 2px;
+    }
+
+    .label {
+      margin-top: 2px;
+      font-size: clamp(14px,3vw,22px);
+      color: #f5e3aa;
+      text-shadow: 1px 1px 3px black;
+    }
+
+    @keyframes glow {
+      from { text-shadow: 0 0 5px black, 0 0 8px #caa76a; }
+      to   { text-shadow: 0 0 10px black, 0 0 18px #ffe6a3; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- אור זוהר -->
+  <div class="glow-overlay"></div>
+
+  <!-- ניצוצות -->
+  <div class="sparkles">
+    <span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span>
+  </div>
+
+  <!-- מילים/אותיות -->
+  <div class="fx-letters">
+    <!-- מהצדדים -->
+    <span class="move-side" style="top:10%; left:-20%;  animation-delay:0s;">מוישי</span>
+    <span class="move-side" style="top:25%; left:120%; animation-delay:1s;">שבי</span>
+    <span class="move-side" style="top:40%; left:-25%; animation-delay:2.2s;">דנינו</span>
+    <span class="move-side" style="top:55%; left:130%; animation-delay:3s;">מוישי</span>
+    <span class="move-side" style="top:70%; left:-30%; animation-delay:4.1s;">שבי</span>
+    <span class="move-side" style="top:85%; left:125%; animation-delay:2.8s;">דנינו</span>
+    <span class="move-side" style="top:15%; left:-25%; animation-delay:5s;">מוישי</span>
+    <span class="move-side" style="top:35%; left:130%; animation-delay:3.5s;">שבי</span>
+    <span class="move-side" style="top:60%; left:-30%; animation-delay:4.7s;">מוישי</span>
+    <span class="move-side" style="top:80%; left:120%; animation-delay:6s;">שבי</span>
+
+    <!-- מלמטה למעלה -->
+    <span class="move-up" style="left:5%;  bottom:-30%; animation-delay:0.5s;">מוישי</span>
+    <span class="move-up" style="left:15%; bottom:-40%; animation-delay:1.8s;">שבי</span>
+    <span class="move-up" style="left:35%; bottom:-35%; animation-delay:3s;">דנינו</span>
+    <span class="move-up" style="left:55%; bottom:-45%; animation-delay:2.5s;">מוישי</span>
+    <span class="move-up" style="left:75%; bottom:-30%; animation-delay:4s;">מאורסים</span>
+    <span class="move-up" style="left:85%; bottom:-40%; animation-delay:5.3s;">מזל טוב</span>
+    <span class="move-up" style="left:25%; bottom:-45%; animation-delay:3.7s;">ח' שבט</span>
+    <span class="move-up" style="left:45%; bottom:-35%; animation-delay:6s;">לא לוקחים סיכונים</span>
+    <span class="move-up" style="left:65%; bottom:-38%; animation-delay:7s;">מזל טוב</span>
+    <span class="move-up" style="left:50%; bottom:-50%; animation-delay:2s;">מזל טוב</span>
+  </div>
+
+  <!-- תמונות מעופפות -->
+  <div class="fx-images">
+    <!-- פה אתה שם תמונות משלך -->
+    <!-- דוגמה: שני כוכבים ושני לוגואים -->
+    <img src="star1.png" style="left:10%; bottom:-25%; animation-delay:0.8s;">
+    <img src="IMG_1408.JPG" style="left:50%; bottom:-35%; animation-delay:2.3s;">
+    <img src="IMG_1405.JPG" style="left:80%; bottom:-40%; animation-delay:2.3s;">
+    <img src="IMG_1407.JPG" style="left:73%; bottom:-25%; animation-delay:2.3s;">  
+  <img src="IMG_1406.JPG" style="left:90%; bottom:-30%; animation-delay:2.3s;">
+    <img src="logo1.png" style="left:30%; bottom:-40%; animation-delay:3.5s;">
+    <img src="logo2.png" style="left:60%; bottom:-35%; animation-delay:5s;">
+  </div>
+
+  <!-- הטיימר -->
+  <div class="countdown-wrapper">
+    <div class="time-box"><div class="num" id="days">00</div><div class="label">ימים</div></div>
+    <div class="time-box"><div class="num" id="hours">00</div><div class="label">שעות</div></div>
+    <div class="time-box"><div class="num" id="minutes">00</div><div class="label">דקות</div></div>
+    <div class="time-box"><div class="num" id="seconds">00</div><div class="label">שניות</div></div>
+  </div>
+
+  <script>
+    const targetDate = new Date("2026-01-26T19:00:00").getTime();
+
+    const daysEl = document.getElementById("days");
+    const hoursEl = document.getElementById("hours");
+    const minutesEl = document.getElementById("minutes");
+    const secondsEl = document.getElementById("seconds");
+
+    function pad(n){return n.toString().padStart(2,'0');}
+
+    function updateCountdown(){
+      const now = Date.now();
+      let diff = targetDate - now;
+
+      if(diff <= 0){
+        daysEl.textContent=hoursEl.textContent=minutesEl.textContent=secondsEl.textContent="00";
+        return;
+      }
+
+      const d = Math.floor(diff/(1000*60*60*24));
+      diff%=1000*60*60*24;
+      const h = Math.floor(diff/(1000*60*60));
+      diff%=1000*60*60;
+      const m = Math.floor(diff/(1000*60));
+      diff%=1000*60;
+      const s = Math.floor(diff/1000);
+
+      daysEl.textContent=pad(d);
+      hoursEl.textContent=pad(h);
+      minutesEl.textContent=pad(m);
+      secondsEl.textContent=pad(s);
+    }
+
+    updateCountdown();
+    setInterval(updateCountdown,1000);
+  </script>
+
+</body>
+</html>

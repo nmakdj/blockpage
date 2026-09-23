@@ -1,78 +1,418 @@
-<!DOCTYPE html>
-<html lang="he">
-<head>
-<meta charset="UTF-8">
-<title>ספירה לאחור מוישי&שבי</title>
-<style>
-  @font-face {
-    font-family: 'FtPilKahol2';
-    src: url('FtPilKahol2.woff2') format('woff2');
-    font-weight: normal;
-    font-style: normal;
+/**
+ * מערכת מעקב חיסורים — קוד השרת (Google Apps Script)
+ * ---------------------------------------------------
+ * כל הנתונים נשמרים בגיליון הזה, בלשוניות: כיתות, מקצועות, תלמידות, חיסורים.
+ * שום דבר לא נמחק באמת: פריט "שנמחק" מסומן בעמודה "נמחק" = כן.
+ * פעם ראשונה: לבחור למעלה את הפונקציה setup וללחוץ "הפעלה" (Run).
+ * גישה לאנשים נוספים: הפריסה מוגדרת "ביצוע בתור: המשתמש שניגש".
+ *   מי שהגיליון משותף איתו כ"צופה"  — צפייה, הדפסה והורדה לאקסל.
+ *   מי שהגיליון משותף איתו כ"עורך"  — גישה מלאה.
+ */
+
+var TABLES = {
+  classes:  {name: 'כיתות',   cols: [['id','מזהה'],['name','שם כיתה'],['deleted','נמחק']]},
+  subjects: {name: 'מקצועות', cols: [['id','מזהה'],['classId','מזהה כיתה'],['className','כיתה'],['name','מקצוע'],['deleted','נמחק']]},
+  students: {name: 'תלמידות', cols: [['id','מזהה'],['name','שם'],['classId','מזהה כיתה'],['className','כיתה'],['deleted','נמחק']]},
+  absences: {name: 'חיסורים', cols: [['id','מזהה'],['studentId','מזהה תלמידה'],['studentName','שם תלמידה'],['classId','מזהה כיתה'],['className','כיתה'],
+             ['subjectId','מזהה מקצוע'],['subjectName','מקצוע'],['date','תאריך'],['hebDate','תאריך עברי'],['hour','שעה'],['note','הערה'],
+             ['year','שנת לימודים'],['deleted','נמחק'],['updatedAt','עודכן'],['updatedBy','עודכן ע״י']]}
+};
+
+/* ---------- דף האתר ---------- */
+function doGet() {
+  return HtmlService.createHtmlOutput(PAGE_HTML)
+    .setTitle('מעקב חיסורים')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/* ---------- הרצה ראשונה ---------- */
+function setup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  PropertiesService.getScriptProperties().setProperty('SHEET_ID', ss.getId());
+  Object.keys(TABLES).forEach(function (k) { sheet_(k); });
+  ss.getSheets().forEach(function (sh) {
+    var isOurs = Object.keys(TABLES).some(function (k) { return TABLES[k].name === sh.getName(); });
+    if (!isOurs && sh.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(sh);
+  });
+  Logger.log('ההתקנה הסתיימה בהצלחה');
+}
+
+/* ---------- כלים פנימיים ---------- */
+var SS_CACHE_ = null, HEAD_OK_ = {};
+function ss_() {
+  if (SS_CACHE_) return SS_CACHE_;
+  var ss = null;
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) {}
+  if (!ss) {
+    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    if (!id) throw new Error('המערכת עוד לא הותקנה. יש להריץ את setup מתוך עורך הקוד.');
+    try { ss = SpreadsheetApp.openById(id); }
+    catch (e) { throw new Error('אין לך הרשאה למערכת. צריך לבקש מבעלת המערכת לשתף איתך את הגיליון.'); }
   }
-
-  body {
-    margin: 0;
-    height: 100vh;
-    background-image: url('9.png');
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    color: gold;
-    font-family: 'FtPilKahol2';
-    text-align: center;
-    position: relative;
+  try { ss.getSheets(); }
+  catch (e) { throw new Error('אין לך הרשאה למערכת. צריך לבקש מבעלת המערכת לשתף איתך את הגיליון.'); }
+  SS_CACHE_ = ss;
+  return ss;
+}
+function me_() { try { return Session.getActiveUser().getEmail() || ''; } catch (e) { return ''; } }
+/* האם למשתמש הנוכחי יש הרשאת עריכה? נקבע לפי השיתוף של הגיליון */
+function canEdit_() {
+  var me = me_().toLowerCase();
+  if (!me) return true;
+  var ss = ss_();
+  try { if (ss.getOwner() && ss.getOwner().getEmail().toLowerCase() === me) return true; } catch (e) {}
+  try { return ss.getEditors().some(function (u) { return u.getEmail().toLowerCase() === me; }); }
+  catch (e) { return false; }
+}
+function mustEdit_() { if (!canEdit_()) throw new Error('יש לך הרשאת צפייה בלבד. לשינויים צריך לבקש מבעלת המערכת הרשאת עריכה.'); }
+function sheet_(key) {
+  var t = TABLES[key], ss = ss_(), sh = ss.getSheetByName(t.name);
+  if (!sh) {
+    sh = ss.insertSheet(t.name);
+    sh.setRightToLeft(true);
+    sh.getRange(1, 1, sh.getMaxRows(), t.cols.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, t.cols.length).setValues([t.cols.map(function (c) { return c[1]; })])
+      .setFontWeight('bold').setBackground('#e9f0f7');
+    sh.setFrozenRows(1);
+    HEAD_OK_[key] = true;
   }
-
-  h1 {
-    position: fixed;
-    bottom: 5px; 
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 95px;
-    color: rgb(202,176,105);
-    text-shadow: 2px 2px 5px black;
-  }
-</style>
-</head>
-<body>
-  <h1 id="countdown"></h1>
-
-  <script>
-    const targetDate = new Date("2026-07-26T19:00:00").getTime();
-
-    function pad(n) {
-      return n.toString().padStart(2, '0');
+  if (!HEAD_OK_[key]) {  // השלמת כותרות לעמודות שנוספו בגרסה חדשה
+    var n = t.cols.length;
+    if (sh.getMaxColumns() < n) sh.insertColumnsAfter(sh.getMaxColumns(), n - sh.getMaxColumns());
+    if (String(sh.getRange(1, n).getValue()) !== t.cols[n - 1][1]) {
+      sh.getRange(1, 1, 1, n).setValues([t.cols.map(function (c) { return c[1]; })]).setFontWeight('bold').setBackground('#e9f0f7');
+      sh.getRange(1, 1, sh.getMaxRows(), n).setNumberFormat('@');
     }
+    HEAD_OK_[key] = true;
+  }
+  return sh;
+}
+function read_(key) {
+  var t = TABLES[key], sh = sheet_(key), n = sh.getLastRow();
+  if (n < 2) return [];
+  var tz = ss_().getSpreadsheetTimeZone();
+  var vals = sh.getRange(2, 1, n - 1, t.cols.length).getValues();
+  return vals.map(function (r, i) {
+    var o = {_row: i + 2};
+    t.cols.forEach(function (c, j) {
+      var v = r[j];
+      if (v instanceof Date) v = Utilities.formatDate(v, tz, c[0] === 'updatedAt' ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd');
+      o[c[0]] = (v === null || v === undefined) ? '' : String(v);
+    });
+    return o;
+  });
+}
+function live_(rows) { return rows.filter(function (o) { return o.id && o.deleted !== 'כן'; }); }
+function rowValues_(key, o) { return TABLES[key].cols.map(function (c) { var v = o[c[0]]; return v == null ? '' : String(v); }); }
+function write_(key, o) {
+  var rg = sheet_(key).getRange(o._row, 1, 1, TABLES[key].cols.length);
+  rg.setNumberFormat('@'); rg.setValues([rowValues_(key, o)]);
+}
+function writeAll_(key, rows) {
+  if (!rows.length) return;
+  var rg = sheet_(key).getRange(2, 1, rows.length, TABLES[key].cols.length);
+  rg.setNumberFormat('@'); rg.setValues(rows.map(function (o) { return rowValues_(key, o); }));
+}
+function appendMany_(key, objs) {
+  if (!objs.length) return;
+  var sh = sheet_(key), start = sh.getLastRow() + 1, need = start + objs.length - 1;
+  if (need > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows() + 200);
+  var rg = sh.getRange(start, 1, objs.length, TABLES[key].cols.length);
+  rg.setNumberFormat('@'); rg.setValues(objs.map(function (o) { return rowValues_(key, o); }));
+}
+function find_(rows, id, what) {
+  for (var i = 0; i < rows.length; i++) if (rows[i].id === id && rows[i].deleted !== 'כן') return rows[i];
+  throw new Error(what + ' לא נמצא/ה. כדאי לרענן את הדף.');
+}
+function uid_(p) { return p + Utilities.getUuid().replace(/-/g, '').slice(0, 12); }
+function now_() { return Utilities.formatDate(new Date(), ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd HH:mm'); }
+function clean_(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
+function need_(s, msg) { s = clean_(s); if (!s) throw new Error(msg); return s; }
+function locked_(fn) {
+  var lock = LockService.getScriptLock();
+  mustEdit_();
+  lock.waitLock(30000);
+  try { return fn(); }
+  catch (e) {
+    if (/permission|הרשאה/i.test(String(e.message)) && !/^יש לך|^אין לך/.test(String(e.message))) throw new Error('אין לך הרשאת עריכה במערכת.');
+    throw e;
+  }
+  finally { try { SpreadsheetApp.flush(); } catch (e) {} lock.releaseLock(); }
+}
+function out_(year, msg, extra) {
+  var r = {data: getData(null, year), msg: msg || ''};
+  if (extra) for (var k in extra) r[k] = extra[k];
+  return r;
+}
+function strip_(o) { var c = {}; for (var k in o) if (k !== '_row') c[k] = o[k]; return c; }
+function validDate_(d) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d))) throw new Error('תאריך לא תקין'); return String(d); }
+function validHour_(h) { h = Number(h); if (!(h >= 1 && h <= 12)) throw new Error('שעה לא תקינה'); return String(h); }
 
-    function updateCountdown() {
-      const now = new Date().getTime();
-      let distance = targetDate - now;
+/* ---------- קריאת נתונים ---------- */
+function getData(_, year) {
+  year = String(year || '');
+  var all = live_(read_('absences')), years = {};
+  all.forEach(function (a) { if (a.year) years[a.year] = 1; });
+  return {
+    classes:  live_(read_('classes')).map(strip_),
+    subjects: live_(read_('subjects')).map(strip_),
+    students: read_('students').filter(function (o) { return o.id; }).map(strip_),
+    absences: all.filter(function (a) { return a.year === year; }).map(function (a) { var c = strip_(a); c.hour = Number(c.hour); return c; }),
+    years: Object.keys(years),
+    me: me_(),
+    canEdit: canEdit_()
+  };
+}
 
-      if (distance < 0) {
-        document.getElementById("countdown").innerHTML = "00:00:00:00";
-        return;
-      }
+/* ---------- כיתות ---------- */
+function addClass(p, year) {
+  return locked_(function () {
+    var name = need_(p.name, 'יש להזין שם כיתה');
+    if (live_(read_('classes')).some(function (c) { return c.name === name; })) throw new Error('כבר יש כיתה בשם הזה');
+    var id = uid_('c_');
+    appendMany_('classes', [{id: id, name: name}]);
+    return out_(year, 'הכיתה נוספה', {id: id});
+  });
+}
+function renameClass(p, year) {
+  return locked_(function () {
+    var name = need_(p.name, 'יש להזין שם כיתה');
+    var rows = read_('classes'), c = find_(rows, p.id, 'הכיתה');
+    if (live_(rows).some(function (x) { return x.name === name && x.id !== c.id; })) throw new Error('כבר יש כיתה בשם הזה');
+    c.name = name; write_('classes', c);
+    ['students', 'subjects'].forEach(function (k) {
+      var r = read_(k), changed = false;
+      r.forEach(function (o) { if (o.classId === c.id && o.deleted !== 'כן') { o.className = name; changed = true; } });
+      if (changed) writeAll_(k, r);
+    });
+    return out_(year, 'שם הכיתה עודכן');
+  });
+}
+function deleteClass(p, year) {
+  return locked_(function () {
+    var rows = read_('classes'), c = find_(rows, p.id, 'הכיתה');
+    if (live_(read_('students')).some(function (s) { return s.classId === c.id; })) throw new Error('יש תלמידות בכיתה. קודם צריך להעביר או להסיר אותן.');
+    c.deleted = 'כן'; write_('classes', c);
+    var subs = read_('subjects'), changed = false;
+    subs.forEach(function (s) { if (s.classId === c.id && s.deleted !== 'כן') { s.deleted = 'כן'; changed = true; } });
+    if (changed) writeAll_('subjects', subs);
+    return out_(year, 'הכיתה נמחקה');
+  });
+}
 
-      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-      distance %= (1000 * 60 * 60 * 24);
-      const hours = Math.floor(distance / (1000 * 60 * 60));
-      distance %= (1000 * 60 * 60);
-      const minutes = Math.floor(distance / (1000 * 60));
-      distance %= (1000 * 60);
-      const seconds = Math.floor(distance / 1000);
+/* ---------- מקצועות ---------- */
+function addSubject(p, year) {
+  return locked_(function () {
+    var name = need_(p.name, 'יש להזין שם מקצוע');
+    var c = find_(read_('classes'), p.classId, 'הכיתה');
+    if (live_(read_('subjects')).some(function (s) { return s.classId === c.id && s.name === name; })) throw new Error('המקצוע כבר קיים בכיתה הזו');
+    appendMany_('subjects', [{id: uid_('m_'), classId: c.id, className: c.name, name: name}]);
+    return out_(year, 'המקצוע נוסף');
+  });
+}
+function renameSubject(p, year) {
+  return locked_(function () {
+    var name = need_(p.name, 'יש להזין שם מקצוע');
+    var rows = read_('subjects'), s = find_(rows, p.id, 'המקצוע');
+    if (live_(rows).some(function (x) { return x.classId === s.classId && x.name === name && x.id !== s.id; })) throw new Error('המקצוע כבר קיים בכיתה הזו');
+    s.name = name; write_('subjects', s);
+    var abs = read_('absences'), changed = false;
+    abs.forEach(function (a) { if (a.subjectId === s.id && a.year === String(year)) { a.subjectName = name; changed = true; } });
+    if (changed) writeAll_('absences', abs);
+    return out_(year, 'שם המקצוע עודכן');
+  });
+}
+function deleteSubject(p, year) {
+  return locked_(function () {
+    var s = find_(read_('subjects'), p.id, 'המקצוע');
+    s.deleted = 'כן'; write_('subjects', s);
+    return out_(year, 'המקצוע הוסר מהכיתה');
+  });
+}
 
-      document.getElementById("countdown").innerHTML =
-        pad(days) + ":" + pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+/* ---------- תלמידות ---------- */
+function addStudents(p, year) {
+  return locked_(function () {
+    var c = find_(read_('classes'), p.classId, 'הכיתה');
+    var existing = live_(read_('students')).filter(function (s) { return s.classId === c.id; }).map(function (s) { return s.name; });
+    var add = [], skipped = 0;
+    (p.names || []).forEach(function (n) {
+      n = clean_(n); if (!n) return;
+      if (existing.indexOf(n) >= 0) { skipped++; return; }
+      existing.push(n);
+      add.push({id: uid_('t_'), name: n, classId: c.id, className: c.name});
+    });
+    appendMany_('students', add);
+    return out_(year, 'נוספו ' + add.length + ' תלמידות' + (skipped ? ' (' + skipped + ' כבר היו ברשימה)' : ''));
+  });
+}
+function updateStudent(p, year) {
+  return locked_(function () {
+    var name = need_(p.name, 'יש להזין שם');
+    var rows = read_('students'), s = find_(rows, p.id, 'התלמידה');
+    var c = find_(read_('classes'), p.classId, 'הכיתה');
+    var nameChanged = s.name !== name;
+    s.name = name; s.classId = c.id; s.className = c.name;
+    write_('students', s);
+    if (nameChanged) {
+      var abs = read_('absences'), changed = false;
+      abs.forEach(function (a) { if (a.studentId === s.id) { a.studentName = name; changed = true; } });
+      if (changed) writeAll_('absences', abs);
     }
+    return out_(year, 'הפרטים נשמרו');
+  });
+}
+function deleteStudent(p, year) {
+  return locked_(function () {
+    var s = find_(read_('students'), p.id, 'התלמידה');
+    s.deleted = 'כן'; write_('students', s);
+    return out_(year, 'התלמידה הוסרה מהרשימות');
+  });
+}
+function removeClassStudents(p, year) {
+  return locked_(function () {
+    var rows = read_('students'), n = 0;
+    rows.forEach(function (s) { if (s.classId === p.classId && s.deleted !== 'כן') { s.deleted = 'כן'; n++; } });
+    if (n) writeAll_('students', rows);
+    return out_(year, n + ' תלמידות הוסרו מהרשימות');
+  });
+}
 
-    setInterval(updateCountdown, 1000);
-  </script>
-</body>
-</html>
+/* ---------- חיסורים ---------- */
+function checkClash_(abs, studentId, date, hour, exceptId) {
+  var clash = live_(abs).some(function (a) { return a.studentId === studentId && a.date === date && a.hour === hour && a.id !== exceptId; });
+  if (clash) throw new Error('כבר רשום חיסור לתלמידה בתאריך הזה בשעה ' + hour);
+}
+function addAbsences(p, year) {
+  return locked_(function () {
+    var st = find_(read_('students'), p.studentId, 'התלמידה');
+    var sub = find_(read_('subjects'), p.subjectId, 'המקצוע');
+    var date = validDate_(p.date), abs = read_('absences'), stamp = now_();
+    var hours = (p.hours || []).map(validHour_);
+    if (!hours.length) throw new Error('יש לבחור שעה');
+    hours.forEach(function (h) { checkClash_(abs, st.id, date, h, null); });
+    appendMany_('absences', hours.map(function (h) {
+      return {id: uid_('a_'), studentId: st.id, studentName: st.name, classId: st.classId, className: st.className,
+              subjectId: sub.id, subjectName: sub.name, date: date, hebDate: clean_(p.hebDate), hour: h,
+              note: String(p.note || '').trim(), year: String(p.year), updatedAt: stamp, updatedBy: me_()};
+    }));
+    return out_(year, hours.length > 1 ? 'נוספו ' + hours.length + ' חיסורים' : 'החיסור נשמר');
+  });
+}
+function updateAbsence(p, year) {
+  return locked_(function () {
+    var abs = read_('absences'), a = find_(abs, p.id, 'החיסור');
+    var date = validDate_(p.date), hour = validHour_(p.hour);
+    checkClash_(abs, a.studentId, date, hour, a.id);
+    if (p.subjectId !== a.subjectId) {
+      var sub = find_(read_('subjects'), p.subjectId, 'המקצוע');
+      a.subjectId = sub.id; a.subjectName = sub.name;
+    }
+    a.date = date; a.hebDate = clean_(p.hebDate); a.hour = hour;
+    a.note = String(p.note || '').trim(); a.year = String(p.year); a.updatedAt = now_(); a.updatedBy = me_();
+    write_('absences', a);
+    return out_(year, 'השינויים נשמרו');
+  });
+}
+function deleteAbsence(p, year) {
+  return locked_(function () {
+    var a = find_(read_('absences'), p.id, 'החיסור');
+    a.deleted = 'כן'; a.updatedAt = now_(); a.updatedBy = me_();
+    write_('absences', a);
+    return out_(year, 'החיסור נמחק');
+  });
+}
 
+/* ---------- ייצוא דוח לגיליון חדש ---------- */
+var XL_ = {title: '#5b4fe0', sub: '#eeecfd', subInk: '#3b2fb8', head: '#4338ca', band: '#f7f6ff',
+           line: '#d9dcef', infoL: '#f3f5fb', foot: '#e3e0fb', ink: '#1e2340'};
+function sev_(n) {
+  n = Number(n) || 0;
+  if (n === 0) return [null, '#a3a8c3'];
+  if (n <= 2) return ['#fff4d6', '#a36a00'];
+  if (n <= 5) return ['#ffe6d5', '#c2410c'];
+  return ['#fde8ec', '#e0364f'];
+}
+function renderSheet_(sh, s) {
+  var W = Math.max(s.header.length, 2), SOLID = SpreadsheetApp.BorderStyle.SOLID;
+  var pad = function (row) { var c = row.slice(); while (c.length < W) c.push(''); return c; };
+  var info = s.info || [], rows = s.rows || [];
+  var need = 3 + (info.length ? info.length + 1 : 0) + 1 + rows.length + (s.footer ? 1 : 0) + 2;
+  if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
+  if (sh.getMaxColumns() < W) sh.insertColumnsAfter(sh.getMaxColumns(), W - sh.getMaxColumns());
+  sh.setRightToLeft(true);
+  sh.setHiddenGridlines(true);
+  var num = {}; (s.countCols || []).concat(s.centerCols || []).forEach(function (c) { num[c] = 1; }); if (s.totalCol >= 0) num[s.totalCol] = 1;
+  var r = 1;
+  // כותרת
+  sh.getRange(r, 1, 1, W).merge().setValue(s.title).setBackground(XL_.title).setFontColor('#ffffff')
+    .setFontWeight('bold').setFontSize(16).setVerticalAlignment('middle').setHorizontalAlignment('right');
+  sh.setRowHeight(r, 38); r++;
+  sh.getRange(r, 1, 1, W).merge().setValue(s.subtitle || '').setBackground(XL_.sub).setFontColor(XL_.subInk)
+    .setFontSize(10).setVerticalAlignment('middle').setHorizontalAlignment('right');
+  sh.setRowHeight(r, 24); r++;
+  sh.setRowHeight(r, 10); r++;
+  // פרטים (לדוח תלמידה)
+  if (info.length) {
+    info.forEach(function (kv) {
+      sh.getRange(r, 1).setValue(kv[0]).setFontWeight('bold').setBackground(XL_.infoL).setFontColor('#4a4f70');
+      var v = sh.getRange(r, 2, 1, W - 1); if (W > 2) v.merge();
+      v.setNumberFormat('@').setValue(String(kv[1])).setFontWeight('bold').setFontColor(XL_.ink).setHorizontalAlignment('right');
+      sh.getRange(r, 1, 1, W).setBorder(true, true, true, true, true, true, XL_.line, SOLID).setVerticalAlignment('middle');
+      sh.setRowHeight(r, 24); r++;
+    });
+    sh.setRowHeight(r, 10); r++;
+  }
+  // שורת כותרות
+  var hr = r;
+  sh.getRange(r, 1, 1, W).setValues([pad(s.header)]).setBackground(XL_.head).setFontColor('#ffffff').setFontWeight('bold')
+    .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true)
+    .setBorder(true, true, true, true, true, true, XL_.head, SOLID);
+  sh.setRowHeight(r, 30); r++;
+  // נתונים
+  if (rows.length) {
+    var n = rows.length, vals = rows.map(pad), bgs = [], fcs = [];
+    for (var c = 0; c < W; c++) if (!num[c]) sh.getRange(r, c + 1, n, 1).setNumberFormat('@');
+    vals.forEach(function (row, i) {
+      var band = i % 2 ? XL_.band : '#ffffff', b = [], f = [];
+      row.forEach(function (v, c) {
+        var bg = band, fc = XL_.ink;
+        if ((s.countCols || []).indexOf(c) >= 0 || c === s.totalCol) { var sv = sev_(v); if (sv[0]) bg = sv[0]; fc = sv[1]; }
+        b.push(bg); f.push(fc);
+      });
+      bgs.push(b); fcs.push(f);
+    });
+    var rg = sh.getRange(r, 1, n, W);
+    rg.setValues(vals.map(function (row) { return row.map(function (v, c) { return num[c] ? v : String(v == null ? '' : v); }); }));
+    rg.setBackgrounds(bgs).setFontColors(fcs).setFontSize(11).setVerticalAlignment('middle').setHorizontalAlignment('right')
+      .setBorder(true, true, true, true, true, true, XL_.line, SOLID);
+    Object.keys(num).forEach(function (c) { sh.getRange(r, Number(c) + 1, n, 1).setHorizontalAlignment('center'); });
+    (s.countCols || []).forEach(function (c) { sh.getRange(r, c + 1, n, 1).setFontWeight('bold'); });
+    if (s.totalCol >= 0) sh.getRange(r, s.totalCol + 1, n, 1).setFontWeight('bold').setFontSize(12);
+    (s.wrapCols || []).forEach(function (c) { sh.getRange(r, c + 1, n, 1).setWrap(true); });
+    r += n;
+  }
+  // שורת סיכום
+  if (s.footer) {
+    sh.getRange(r, 1, 1, W).setValues([pad(s.footer)]).setBackground(XL_.foot).setFontColor(XL_.subInk).setFontWeight('bold').setFontSize(12)
+      .setVerticalAlignment('middle').setBorder(true, true, true, true, true, true, XL_.head, SOLID);
+    Object.keys(num).forEach(function (c) { sh.getRange(r, Number(c) + 1).setHorizontalAlignment('center'); });
+    sh.setRowHeight(r, 28); r++;
+  }
+  sh.setFrozenRows(hr);
+  (s.widths || []).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  if (sh.getMaxColumns() > W) sh.deleteColumns(W + 1, sh.getMaxColumns() - W);
+  if (sh.getMaxRows() > r + 1) sh.deleteRows(r + 2, sh.getMaxRows() - r - 1);
+}
+function exportReport(p) {
+  var ss = SpreadsheetApp.create(String(p.title || 'דוח חיסורים'));
+  (p.sheets || []).forEach(function (s, i) {
+    var sh = i === 0 ? ss.getSheets()[0].setName(s.name) : ss.insertSheet(s.name);
+    renderSheet_(sh, s);
+  });
+  SpreadsheetApp.flush();
+  return {url: ss.getUrl(), xlsx: 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?format=xlsx', msg: 'הדוח נוצר'};
+}
 
-
-
-
-
+/* ---------- עיצוב ותוכן הדף (לא לשנות) ---------- */
+var PAGE_HTML = "<!DOCTYPE html>\n<html lang=\"he\" dir=\"rtl\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>מעקב חיסורים</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n<style>\n:root{\n  --bg:#f3f5fb; --card:#fff; --ink:#1e2340; --muted:#6b7090; --line:#e4e7f2;\n  --accent:#5b4fe0; --accent2:#0ea5c6; --accent-ink:#fff; --accent-soft:#eeecfd;\n  --danger:#e0364f; --danger-soft:#fde8ec; --zero:#a3a8c3;\n  --radius:16px; --shadow:0 2px 10px rgba(40,48,110,.07);\n}\n*{box-sizing:border-box}\nhtml,body{margin:0}\nbody{font-family:Heebo,Arial,sans-serif;color:var(--ink);font-size:15px;line-height:1.5;\n  background:var(--bg) radial-gradient(circle at 100% 0,#e3e0ff 0,transparent 380px) no-repeat,\n             radial-gradient(circle at 0 30%,#d9f4fa 0,transparent 420px) no-repeat;background-color:var(--bg);min-height:100vh}\nheader{background:linear-gradient(110deg,#5b4fe0 0%,#7a5af0 40%,#0ea5c6 100%);position:sticky;top:0;z-index:20;box-shadow:0 4px 18px rgba(60,50,170,.25)}\n.bar{max-width:1000px;margin:0 auto;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:#fff}\n.brand{font-size:21px;font-weight:700;margin-inline-end:auto;cursor:pointer;display:flex;align-items:center;gap:10px}\n.logo{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.2);display:grid;place-items:center}\nheader label{color:rgba(255,255,255,.85)!important}\nheader select{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff}\nheader select option{color:var(--ink)}\n@media (max-width:560px){header label{display:none}}\n.me{font-size:13px;color:rgba(255,255,255,.9);width:100%;text-align:left;margin-top:-4px}\n.me:empty{display:none}\n.by{font-size:12px;color:var(--muted);margin-top:2px}\nheader .homebtn{display:inline-flex;align-items:center;gap:6px}\n.back{display:inline-flex;align-items:center;gap:4px;margin-bottom:12px}\n.xl{display:inline-flex;align-items:center;gap:6px;color:#1d6f42;border-color:#b7dfc6;background:#effaf3;font-weight:500}\n.xl:hover{border-color:#1d6f42}\nheader button{background:#fff;border-color:#fff;color:var(--accent);font-weight:500}\nmain{max-width:1000px;margin:0 auto;padding:18px 16px 60px}\nh2{font-size:17px;margin:24px 0 12px}\nbutton{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);padding:7px 14px;color:var(--ink);white-space:nowrap;transition:transform .08s,box-shadow .15s,filter .15s}\nbutton:hover{border-color:#c9cde3}\nbutton:active{transform:translateY(1px)}\nbutton.primary{background:linear-gradient(110deg,var(--accent),#7a5af0);border-color:transparent;color:var(--accent-ink);box-shadow:0 3px 10px rgba(91,79,224,.3)}\nbutton.primary:hover{filter:brightness(1.08)}\nbutton.danger{color:var(--danger);border-color:#f6c3cc}\nbutton.danger.solid{background:var(--danger);color:#fff;border-color:var(--danger)}\nbutton.ghost{border-color:transparent;background:none;color:var(--accent);padding:5px 8px}\nbutton.ghost:hover{background:var(--accent-soft)}\nbutton.ghost.red{color:var(--danger)}\nbutton.ghost.red:hover{background:var(--danger-soft)}\nbutton.sm{padding:4px 10px;font-size:14px}\ninput,select,textarea{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);width:100%}\ninput:focus,select:focus,textarea:focus{outline:3px solid var(--accent-soft);border-color:var(--accent)}\ntextarea{resize:vertical;min-height:70px}\nlabel.f{display:block;font-weight:500;margin:14px 0 6px}\n.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}\n.pad{padding:16px 18px}\n.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}\n.grow{flex:1;min-width:0}\n.muted{color:var(--muted)}\n.small{font-size:13px}\n.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted);margin-bottom:14px}\n.crumbs a{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:500}\n.crumbs a:hover{text-decoration:underline}\n.title{font-size:24px;font-weight:700}\n/* badges by amount */\n.badge{display:inline-block;min-width:34px;text-align:center;padding:2px 10px;border-radius:20px;font-weight:700;font-variant-numeric:tabular-nums;background:#fff4d6;color:#a36a00}\n.badge.zero{background:#eef0f7;color:var(--zero)}\n.badge.mid{background:#ffe6d5;color:#c2410c}\n.badge.high{background:var(--danger-soft);color:var(--danger)}\n.view-note{background:#e8f4fd!important;border-color:#b6dcf5!important;color:#0b5a8a!important}\n.archive-note{background:#fff7e0;border:1px solid #f7d88c;color:#8a5a00;border-radius:12px;padding:10px 14px;margin-bottom:16px}\n.yearsel{width:auto}\n/* stats */\n.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}\n.stat{border-radius:var(--radius);padding:14px 16px;color:#fff;box-shadow:var(--shadow)}\n.stat .v{font-size:28px;font-weight:700;line-height:1.1}\n.stat .l{opacity:.92;font-size:14px}\n.stat.s1{background:linear-gradient(135deg,#5b4fe0,#8b7bf5)}\n.stat.s2{background:linear-gradient(135deg,#f0506e,#f98a6b)}\n.stat.s3{background:linear-gradient(135deg,#0ea5c6,#34d3b4)}\n@media (max-width:560px){.stats{grid-template-columns:1fr 1fr 1fr;gap:8px}.stat{padding:10px}.stat .v{font-size:22px}.stat .l{font-size:12px}}\n/* classes grid */\n.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}\n.cls{padding:0;cursor:pointer;text-align:start;overflow:hidden;border:none;position:relative}\n.cls .top{height:8px;background:var(--c)}\n.cls .in{padding:14px 16px}\n.cls .n{font-size:24px;font-weight:700;color:var(--c)}\n.cls:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(40,48,110,.13)}\n.cls .circle{position:absolute;left:-18px;bottom:-18px;width:70px;height:70px;border-radius:50%;background:var(--cs)}\n/* lists */\n.list{list-style:none;margin:0;padding:0}\n.list li{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--line)}\n.list li:first-child{border-top:none}\n.list li.click{cursor:pointer}\n.list li.click:hover{background:#f7f6ff}\n.chev{color:var(--muted)}\n.av{width:34px;height:34px;flex:none;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--c);background:var(--cs)}\n/* search */\n.search{position:relative}\n.search input{padding:12px 44px 12px 14px;border-radius:14px;box-shadow:var(--shadow);font-size:16px}\n.search .ic{position:absolute;right:14px;top:13px;color:var(--muted);pointer-events:none}\n.results{position:absolute;inset-inline:0;top:100%;margin-top:6px;z-index:10;max-height:340px;overflow:auto;box-shadow:0 12px 30px rgba(40,48,110,.18)}\n/* student */\n.stuhead{display:flex;gap:14px;align-items:center;flex-wrap:wrap;border-top:6px solid var(--c)}\n.stuhead .av{width:54px;height:54px;font-size:22px}\n.stuhead .name{font-size:24px;font-weight:700}\n.subj{margin-top:10px;overflow:hidden;border-inline-start:6px solid var(--c)}\n.subj-h{display:flex;align-items:center;gap:10px;width:100%;border:none;border-radius:0;background:none;padding:13px 16px;text-align:start;font-size:16px;box-shadow:none}\n.subj-h:hover{background:var(--cs)}\n.subj-h .dot{width:10px;height:10px;border-radius:50%;background:var(--c)}\n.subj-h .nm{flex:1;font-weight:500}\n.subj-h .arrow{transition:transform .15s;color:var(--muted)}\n.subj.open .subj-h{background:var(--cs)}\n.subj.open .subj-h .arrow{transform:rotate(-90deg)}\n.subj-b{border-top:1px solid var(--line);padding:6px 16px 14px}\n.abs{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line)}\n.abs:last-of-type{border-bottom:none}\n.abs .when{font-weight:500}\n.abs .when .d{display:inline-block;background:var(--cs);color:var(--c);border-radius:8px;padding:0 8px;margin-inline-end:6px;font-weight:700}\n.abs .note{color:var(--ink);white-space:pre-wrap;margin-top:3px}\n.abs .note.nonote{color:var(--zero)}\n@media (max-width:600px){.stuhead>.grow{flex-basis:60%}}\n.extra-tag{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:0 6px}\n/* hours */\n.hours{display:flex;flex-wrap:wrap;gap:6px}\n.hours button{padding:6px 12px;border-radius:20px}\n.hours button.on{background:linear-gradient(110deg,var(--accent),#7a5af0);color:#fff;border-color:transparent}\n.preview{margin-top:8px;color:var(--accent);font-weight:500;background:var(--accent-soft);border-radius:10px;padding:5px 10px;display:inline-block}\n.err{color:var(--danger);margin-top:10px;white-space:pre-wrap}\n/* manage */\n.chips{display:flex;flex-wrap:wrap;gap:8px}\n.chips button{border-radius:20px;border-color:var(--c);color:var(--c);font-weight:500}\n.chips button.on{background:var(--c);color:#fff}\n.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}\n@media (max-width:720px){.two{grid-template-columns:1fr}}\n.sec-h{display:flex;align-items:center;gap:8px;padding:12px 16px;font-weight:700;border-radius:var(--radius) var(--radius) 0 0}\n.sec-h.a{background:#eeecfd;color:#4338ca}\n.sec-h.b{background:#dcf5f9;color:#0e7490}\n/* modal */\n.backdrop{position:fixed;inset:0;background:rgba(30,35,64,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:50;overflow:auto;backdrop-filter:blur(2px)}\n.modal{background:#fff;border-radius:18px;width:100%;max-width:480px;padding:0 20px 20px;box-shadow:0 24px 60px rgba(0,0,0,.28);overflow:hidden}\n.modal::before{content:\"\";display:block;height:6px;margin:0 -20px 16px;background:linear-gradient(110deg,#5b4fe0,#7a5af0,#0ea5c6)}\n.modal h3{margin:0 0 4px;font-size:19px}\n.modal .actions{display:flex;gap:8px;justify-content:flex-start;margin-top:20px;flex-wrap:wrap}\n/* toast & busy */\n#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:linear-gradient(110deg,#0f9b8e,#12b886);color:#fff;padding:11px 20px;border-radius:12px;z-index:80;display:none;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,.2);font-weight:500}\n#toast.bad{background:var(--danger)}\n#busy{position:fixed;top:0;left:0;right:0;height:4px;z-index:90;display:none;overflow:hidden}\n#busy::after{content:\"\";position:absolute;height:100%;width:30%;background:linear-gradient(90deg,#fbbf24,#f472b6);animation:slide 1s infinite linear}\n@keyframes slide{from{right:-30%}to{right:100%}}\n.empty{padding:30px 16px;text-align:center;color:var(--muted)}\n#print-area{display:none}\n/* print */\n@media print{\n  @page{size:A4;margin:12mm}\n  body{background:#fff!important;font-size:11pt}\n  header,main,#toast,#busy,#modal-root{display:none!important}\n  #print-area{display:block}\n  .rp h1{font-size:18pt;margin:0;color:#3b2fb8}\n  .rp .sub{color:#555;margin:2px 0 12px}\n  .rp table{border-collapse:collapse;width:100%;margin:6px 0 10px}\n  .rp th,.rp td{border:1px solid #aab;padding:3px 6px;text-align:right;vertical-align:top}\n  .rp th{background:#eeecfd;-webkit-print-color-adjust:exact;print-color-adjust:exact}\n  .rp td.num,.rp th.num{text-align:center}\n  .rp td.nt{font-size:9pt;color:#333}\n  .rp .stu{break-inside:avoid;page-break-inside:avoid;margin-top:14px}\n  .rp h3{font-size:13pt;margin:0 0 2px;border-bottom:2px solid #5b4fe0}\n  .rp h4{font-size:11pt;margin:6px 0 0}\n  .rp .pb{page-break-before:always}\n}\n</style>\n</head>\n<body>\n<div id=\"busy\"></div>\n<header>\n  <div class=\"bar\">\n    <div class=\"brand\" data-act=\"home\"><span class=\"logo\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"17\" rx=\"3\"/><path d=\"M8 2v4M16 2v4M3 10h18M9 15l2 2 4-4\"/></svg></span>מעקב חיסורים</div>\n    <label class=\"muted small\" for=\"year\">שנת לימודים</label>\n    <select id=\"year\" class=\"yearsel\"></select>\n    <button data-act=\"home\" class=\"homebtn\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 11 12 3l9 8\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/></svg> דף הבית</button>\n    <button data-act=\"manage\">ניהול כיתות ותלמידות</button>\n    <span id=\"me\" class=\"me\"></span>\n  </div>\n</header>\n<main id=\"app\"><div class=\"empty\">טוען נתונים…</div></main>\n<div id=\"modal-root\"></div>\n<div id=\"toast\"></div>\n<div id=\"print-area\"></div>\n\n<script>\n/* ================= הגדרות ================= */\nconst HOURS = ['ראשונה','שנייה','שלישית','רביעית','חמישית','שישית','שביעית'];\n\n/* ================= תאריכים ================= */\nconst HEB_MONTHS = {Tishri:'תשרי',Heshvan:'חשוון',Kislev:'כסלו',Tevet:'טבת',Shevat:'שבט',Adar:'אדר','Adar I':'אדר א׳','Adar II':'אדר ב׳',Nisan:'ניסן',Iyar:'אייר',Sivan:'סיוון',Tamuz:'תמוז',Av:'אב',Elul:'אלול'};\nconst fParts = new Intl.DateTimeFormat('en-u-ca-hebrew',{day:'numeric',month:'long',year:'numeric'});\nconst fDay = new Intl.DateTimeFormat('he',{weekday:'long'});\nfunction gematria(n, withGeresh){\n  const H=[[400,'ת'],[300,'ש'],[200,'ר'],[100,'ק']], T=['','י','כ','ל','מ','נ','ס','ע','פ','צ'], U=['','א','ב','ג','ד','ה','ו','ז','ח','ט'];\n  let s='';\n  for(const [v,c] of H){ while(n>=v){ s+=c; n-=v; } }\n  if(n===15) s+='טו'; else if(n===16) s+='טז'; else s+=T[Math.floor(n/10)]+U[n%10];\n  if(!withGeresh) return s;\n  return s.length===1 ? s+'׳' : s.slice(0,-1)+'״'+s.slice(-1);\n}\nfunction parseISO(iso){const [y,m,d]=String(iso).split('-').map(Number);return new Date(y,m-1,d,12);}\nfunction todayISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}\nfunction hebParts(iso){const p=fParts.formatToParts(parseISO(iso));const g=t=>p.find(x=>x.type===t).value;return {day:+g('day'),month:g('month'),year:+g('year')};}\nfunction hebDate(iso, withYear){const h=hebParts(iso);return gematria(h.day,true)+' '+(HEB_MONTHS[h.month]||h.month)+(withYear?' '+gematria(h.year%1000,true):'');}\nfunction schoolYearOf(iso){const h=hebParts(iso);return h.month==='Elul'?h.year+1:h.year;}  // אלול כבר שייך לשנת הלימודים הבאה\nfunction yearLabel(y){return gematria(Number(y)%1000,true);}\nfunction dayName(iso){return fDay.format(parseISO(iso));}\nfunction greg(iso){const [y,m,d]=String(iso).split('-');return Number(d)+'/'+Number(m)+'/'+y;}\nfunction hourName(h){return 'שעה '+(HOURS[Number(h)-1]||h);}\nfunction fullWhen(a){return dayName(a.date)+' · '+hourName(a.hour)+' · '+hebDate(a.date)+' · '+greg(a.date);}\n\n/* ================= כלים ================= */\nconst $ = s => document.querySelector(s);\nfunction esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));}\nconst coll = new Intl.Collator('he',{numeric:true});\nconst byName = (a,b)=>coll.compare(a.name,b.name);\nconst byWhen = (a,b)=> a.date<b.date?-1:a.date>b.date?1:(Number(a.hour)-Number(b.hour));\nfunction badge(n){return '<span class=\"badge'+(n===0?' zero':n>=6?' high':n>=3?' mid':'')+'\">'+n+'</span>';}\nconst PAL=[['#5b4fe0','#eeecfd'],['#0e9fbf','#dcf5f9'],['#e8590c','#fff0e6'],['#d6336c','#fde7ef'],['#2f9e44','#e3f7e7'],['#b7791f','#fdf3dc'],['#7048e8','#efe9ff'],['#0c8599','#dff6f6'],['#e03131','#fde8e8'],['#1971c2','#e3f0fc']];\nfunction colorOf(str){let h=0;for(const ch of String(str))h=(h*31+ch.charCodeAt(0))>>>0;return PAL[h%PAL.length];}\nfunction cvarsI(i){const c=PAL[i%PAL.length];return 'style=\"--c:'+c[0]+';--cs:'+c[1]+'\"';}\nfunction classIdx(name){const i=D.classList().findIndex(c=>c.name===name);return i<0?0:i;}\nfunction cvars(str){const c=colorOf(str);return 'style=\"--c:'+c[0]+';--cs:'+c[1]+'\"';}\nfunction avatar(name){return '<span class=\"av\" '+cvars(name)+'>'+esc(String(name).trim().charAt(0))+'</span>';}\nfunction weekStartISO(){const d=new Date();d.setDate(d.getDate()-d.getDay());return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}\n\n/* ================= מצב ================= */\nconst S = {data:null, year:null, currentYear:null, screen:'home', classKey:null, studentId:null, open:new Set(), sortBy:'name', mClass:null};\nconst isArchive = () => String(S.year)!==String(S.currentYear);\nconst canEdit = () => !!(S.data && S.data.canEdit!==false);\nconst ro = () => isArchive() || !canEdit();\n\n/* ================= שרת ================= */\nfunction api(fn, arg){\n  return new Promise((resolve,reject)=>{\n    if(window.google && google.script && google.script.run){\n      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](arg===undefined?null:arg, String(S.year));\n    } else {\n      setTimeout(()=>{try{Promise.resolve(Mock[fn](arg, String(S.year))).then(v=>resolve(JSON.parse(JSON.stringify(v))),reject);}catch(e){reject(e);}},120);\n    }\n  });\n}\nlet busyCount=0;\nfunction setBusy(on){busyCount+=on?1:-1;$('#busy').style.display=busyCount>0?'block':'none';}\nasync function call(fn,arg){\n  setBusy(true);\n  try{\n    const r = await api(fn,arg);\n    if(r && r.data){ S.data=r.data; render(); }\n    if(r && r.msg) toast(r.msg);\n    return r;\n  }catch(e){\n    const m=(e&&e.message)||String(e); toast(m.replace(/^Error:\\s*/,''),true); throw e;\n  }finally{ setBusy(false); }\n}\nlet toastT;\nfunction toast(msg,bad){const t=$('#toast');t.textContent=msg;t.className=bad?'bad':'';t.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>t.style.display='none',bad?6000:3000);}\n\n/* ================= גישה לנתונים ================= */\nconst D = {\n  classes(){ return S.data.classes.slice().sort(byName); },\n  cls(id){ return S.data.classes.find(c=>c.id===id); },\n  subjectsOf(classId){ return S.data.subjects.filter(s=>s.classId===classId); },\n  student(id){ return S.data.students.find(s=>s.id===id); },\n  activeStudents(){ return S.data.students.filter(s=>s.deleted!=='כן'); },\n  absOf(sid){ return S.data.absences.filter(a=>a.studentId===sid); },\n  // רשימת \"כיתות\" לתצוגה: בשנה הנוכחית – הכיתות הקיימות; בארכיון – לפי מה שנרשם באותה שנה\n  classList(){\n    if(!isArchive()) return D.classes().map(c=>({key:c.id,name:c.name}));\n    const names=[...new Set(S.data.absences.map(a=>a.className))].sort(coll.compare);\n    return names.map(n=>({key:n,name:n}));\n  },\n  className(key){ return isArchive()? key : (D.cls(key)||{}).name||''; },\n  members(key){\n    if(!isArchive()) return D.activeStudents().filter(s=>s.classId===key);\n    const ids=[...new Set(S.data.absences.filter(a=>a.className===key).map(a=>a.studentId))];\n    return ids.map(id=>{const st=D.student(id); const a=S.data.absences.find(x=>x.studentId===id); return {id, name: st?st.name:a.studentName, classId:null, archivedClass:key};});\n  },\n  allSearchable(){\n    if(!isArchive()) return D.activeStudents().map(s=>({id:s.id,name:s.name,cls:(D.cls(s.classId)||{}).name||''}));\n    const seen=new Map(); S.data.absences.forEach(a=>{ if(!seen.has(a.studentId)) seen.set(a.studentId,{id:a.studentId,name:(D.student(a.studentId)||{}).name||a.studentName,cls:a.className}); });\n    return [...seen.values()];\n  },\n  groups(st){\n    const abs=D.absOf(st.id).sort(byWhen), groups=[], map=new Map();\n    if(!isArchive()){\n      for(const sub of D.subjectsOf(st.classId)){ const g={key:sub.id,subjectId:sub.id,name:sub.name,items:[]}; groups.push(g); map.set(g.key,g); }\n    }\n    for(const a of abs){\n      const key = isArchive() ? 'n:'+a.subjectName : a.subjectId;\n      let g = map.get(key);\n      if(!g){ g={key,subjectId:isArchive()?null:a.subjectId,name:a.subjectName,items:[],extra:!isArchive()}; groups.push(g); map.set(key,g); }\n      g.items.push(a);\n    }\n    return groups;\n  }\n};\n\n/* ================= ניווט ================= */\nfunction go(screen, extra){ Object.assign(S,{screen},extra||{}); render(); window.scrollTo(0,0); }\n\n/* ================= רינדור ================= */\nfunction render(){\n  if(!S.data) return;\n  // בחירת שנה\n  const years=[...new Set([...S.data.years.map(String), String(S.currentYear), String(S.year)])].sort((a,b)=>b-a);\n  $('#me').textContent = S.data.me ? 'חשבון: '+S.data.me+(canEdit()?'':' · צפייה בלבד') : '';\n  $('#year').innerHTML = years.map(y=>'<option value=\"'+y+'\"'+(String(y)===String(S.year)?' selected':'')+'>'+yearLabel(y)+(String(y)===String(S.currentYear)?' (נוכחית)':'')+'</option>').join('');\n  // בדיקת תקינות בחירות\n  if(S.screen==='student' && !D.student(S.studentId) && !(isArchive() && S.data.absences.some(a=>a.studentId===S.studentId))) S.screen='home';\n  if(S.screen==='class' && !D.classList().some(c=>c.key===S.classKey)) S.screen='home';\n  if(S.screen==='manage' && ro()) S.screen='home';\n  document.querySelector('header [data-act=manage]').style.display = canEdit() ? '' : 'none';\n  const app=$('#app');\n  const note = !canEdit() ? '<div class=\"archive-note view-note\">מצב צפייה: אפשר לצפות, להדפיס דוחות ולהוריד לאקסל.'+(isArchive()?' (שנת ארכיון '+yearLabel(S.year)+')':'')+'</div>'\n    : isArchive() ? '<div class=\"archive-note\">זו שנת ארכיון ('+yearLabel(S.year)+'). אפשר לצפות ולהדפיס דוחות, אבל אי אפשר לשנות אותה.</div>' : '';\n  if(S.screen==='home') app.innerHTML = note+renderHome();\n  else if(S.screen==='class') app.innerHTML = note+renderClass();\n  else if(S.screen==='student') app.innerHTML = note+renderStudent();\n  else if(S.screen==='manage') app.innerHTML = renderManage();\n}\n\nfunction renderHome(){\n  const list=D.classList();\n  let h='<div class=\"search\"><input id=\"q\" placeholder=\"חיפוש תלמידה לפי שם…\" autocomplete=\"off\"><svg class=\"ic\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5\"/></svg><div id=\"results\"></div></div>';\n  if(list.length){\n    const abs=S.data.absences, ws=weekStartISO();\n    const nStud = isArchive()? new Set(abs.map(a=>a.studentId)).size : D.activeStudents().length;\n    h+='<div class=\"stats\"><div class=\"stat s1\"><div class=\"v\">'+nStud+'</div><div class=\"l\">תלמידות</div></div>'\n      +'<div class=\"stat s2\"><div class=\"v\">'+abs.length+'</div><div class=\"l\">חיסורים בשנה</div></div>'\n      +'<div class=\"stat s3\"><div class=\"v\">'+(isArchive()?list.length:abs.filter(a=>a.date>=ws).length)+'</div><div class=\"l\">'+(isArchive()?'כיתות':'חיסורים השבוע')+'</div></div></div>';\n  }\n  h+='<div class=\"row\" style=\"margin-top:24px;margin-bottom:12px\"><h2 class=\"grow\" style=\"margin:0\">כיתות</h2>'+(list.length?'<button class=\"xl\" data-act=\"export-all\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12\"/><path d=\"m7 10 5 5 5-5\"/><path d=\"M4 20h16\"/></svg> הורדת כל הנתונים לאקסל</button>':'')+'</div>';\n  if(!list.length){\n    return h+'<div class=\"card empty\">'+(ro()?'אין נתונים להצגה.':'עדיין אין כיתות.<br><br><button class=\"primary\" data-act=\"manage\">הוספת כיתות, מקצועות ותלמידות</button>')+'</div>';\n  }\n  h+='<div class=\"grid\">';\n  for(const c of list){\n    const mem=D.members(c.key); const total=mem.reduce((n,s)=>n+D.absOf(s.id).length,0);\n    h+='<button class=\"card cls\" '+cvarsI(classIdx(c.name))+' data-act=\"open-class\" data-id=\"'+esc(c.key)+'\"><div class=\"top\"></div><span class=\"circle\"></span><div class=\"in\"><div class=\"n\">'+esc(c.name)+'</div><div class=\"muted small\">'+mem.length+' תלמידות</div><div style=\"margin-top:6px\">'+badge(total)+' <span class=\"small muted\">חיסורים</span></div></div></button>';\n  }\n  return h+'</div>';\n}\n\nfunction renderClass(){\n  const name=D.className(S.classKey);\n  let mem=D.members(S.classKey).map(s=>({...s,n:D.absOf(s.id).length}));\n  mem.sort(S.sortBy==='count' ? (a,b)=>b.n-a.n||byName(a,b) : byName);\n  let h='<button class=\"back sm\" data-act=\"home\">→ חזרה לכל הכיתות</button><div class=\"crumbs\"><a data-act=\"home\">כיתות</a> › <b>'+esc(name)+'</b></div>';\n  h+='<div class=\"row\" style=\"margin-bottom:14px\"><div class=\"grow title\" '+cvarsI(classIdx(name))+'><span style=\"color:var(--c)\">כיתה '+esc(name)+'</span></div>'\n    +'<select id=\"sort\" style=\"width:auto\"><option value=\"name\"'+(S.sortBy==='name'?' selected':'')+'>מיון לפי שם</option><option value=\"count\"'+(S.sortBy==='count'?' selected':'')+'>מיון לפי מספר חיסורים</option></select>'\n    +'<button data-act=\"print-class\">הדפסת דוח כיתה</button><button class=\"xl\" data-act=\"export-class\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12\"/><path d=\"m7 10 5 5 5-5\"/><path d=\"M4 20h16\"/></svg> הורדה לאקסל</button></div>';\n  if(!mem.length) return h+'<div class=\"card empty\">אין תלמידות בכיתה הזו.'+(ro()?'':'<br><br><button data-act=\"manage-class\" data-id=\"'+esc(S.classKey)+'\">הוספת תלמידות</button>')+'</div>';\n  h+='<div class=\"card\"><ul class=\"list\">';\n  for(const s of mem) h+='<li class=\"click\" data-act=\"open-student\" data-id=\"'+esc(s.id)+'\">'+avatar(s.name)+'<span class=\"grow\">'+esc(s.name)+'</span>'+badge(s.n)+'<span class=\"chev\">‹</span></li>';\n  return h+'</ul></div>';\n}\n\nfunction currentStudent(){\n  const st=D.student(S.studentId);\n  if(isArchive()){ const a=S.data.absences.find(x=>x.studentId===S.studentId); return {id:S.studentId,name:st?st.name:(a?a.studentName:''),className:a?a.className:''}; }\n  return st?{...st,className:(D.cls(st.classId)||{}).name||''}:null;\n}\n\nfunction renderStudent(){\n  const st=currentStudent(); if(!st) return '';\n  const groups=D.groups(st); const total=groups.reduce((n,g)=>n+g.items.length,0);\n  const ck = isArchive()? st.className : st.classId;\n  let h='<div class=\"row\"><button class=\"back sm\" data-act=\"open-class\" data-id=\"'+esc(ck)+'\">→ חזרה לכיתה '+esc(st.className)+'</button><button class=\"back sm\" data-act=\"home\">'+'<svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 11 12 3l9 8\"/><path d=\"M5 10v10h14V10\"/><path d=\"M10 20v-6h4v6\"/></svg> דף הבית</button></div><div class=\"crumbs\"><a data-act=\"home\">כיתות</a> › <a data-act=\"open-class\" data-id=\"'+esc(ck)+'\">'+esc(st.className)+'</a> › <b>'+esc(st.name)+'</b></div>';\n  h+='<div class=\"card pad stuhead\" '+cvars(st.name)+'>'+avatar(st.name)+'<div class=\"grow\"><div class=\"name\">'+esc(st.name)+'</div><div class=\"muted\">כיתה '+esc(st.className)+' · סה״כ '+badge(total)+' חיסורים</div></div>';\n  if(!ro()) h+='<button class=\"primary\" data-act=\"add-abs\">+ הוספת חיסור</button><button data-act=\"edit-student\" data-id=\"'+esc(st.id)+'\">עריכת פרטים</button>';\n  h+='<button data-act=\"print-student\">הדפסה</button><button class=\"xl\" data-act=\"export-student\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12\"/><path d=\"m7 10 5 5 5-5\"/><path d=\"M4 20h16\"/></svg> הורדה לאקסל</button></div>';\n  if(!groups.length){\n    return h+'<div class=\"card empty\" style=\"margin-top:10px\">'+(ro()?'אין חיסורים.':'לכיתה הזו עדיין לא הוגדרו מקצועות.<br><br><button data-act=\"manage-class\" data-id=\"'+esc(st.classId)+'\">הוספת מקצועות לכיתה</button>')+'</div>';\n  }\n  groups.forEach((g,gi)=>{\n    const open=S.open.has(g.key);\n    h+='<div class=\"card subj'+(open?' open':'')+'\" '+cvarsI(gi)+'><button class=\"subj-h\" data-act=\"toggle\" data-key=\"'+esc(g.key)+'\"><span class=\"dot\"></span><span class=\"nm\">'+esc(g.name)+(g.extra?' <span class=\"extra-tag\">לא ממקצועות הכיתה</span>':'')+'</span>'+badge(g.items.length)+'<span class=\"arrow\">‹</span></button>';\n    if(open){\n      h+='<div class=\"subj-b\">';\n      if(!g.items.length) h+='<div class=\"muted\" style=\"padding:8px 0\">אין חיסורים במקצוע הזה.</div>';\n      for(const a of g.items){\n        h+='<div class=\"abs\"><div class=\"grow\"><div class=\"when\"><span class=\"d\">'+esc(hebDate(a.date))+'</span>'+esc(dayName(a.date)+' · '+hourName(a.hour)+' · '+greg(a.date))+'</div><div class=\"note'+(a.note?'':' nonote')+'\">'+(a.note?esc(a.note):'ללא הערה')+'</div>'+(a.updatedBy&&a.updatedBy!==S.data.me?'<div class=\"by\">עודכן ע״י '+esc(a.updatedBy.split('@')[0])+'</div>':'')+'</div>';\n        if(!ro()) h+='<button class=\"ghost sm\" data-act=\"edit-abs\" data-id=\"'+esc(a.id)+'\">עריכה</button><button class=\"ghost red sm\" data-act=\"del-abs\" data-id=\"'+esc(a.id)+'\">מחיקה</button>';\n        h+='</div>';\n      }\n      if(!ro() && !g.extra) h+='<button class=\"sm\" style=\"margin-top:8px\" data-act=\"add-abs\" data-subject=\"'+esc(g.subjectId)+'\">+ הוספת חיסור ב'+esc(g.name)+'</button>';\n      h+='</div>';\n    }\n    h+='</div>';\n  });\n  return h;\n}\n\nfunction renderManage(){\n  const classes=D.classes();\n  if(S.mClass && !D.cls(S.mClass)) S.mClass=null;\n  if(!S.mClass && classes.length) S.mClass=classes[0].id;\n  let h='<button class=\"back sm\" data-act=\"home\">→ חזרה לדף הבית</button><div class=\"crumbs\"><a data-act=\"home\">כיתות</a> › <b>ניהול</b></div>';\n  h+='<div class=\"card pad\"><div style=\"font-weight:700;margin-bottom:8px\">כיתות</div><div class=\"chips\">';\n  for(const c of classes) h+='<button '+cvarsI(classIdx(c.name))+' class=\"'+(c.id===S.mClass?'on':'')+'\" data-act=\"m-pick\" data-id=\"'+esc(c.id)+'\">'+esc(c.name)+'</button>';\n  h+='</div><div class=\"row\" style=\"margin-top:12px\"><input id=\"new-class\" class=\"grow\" placeholder=\"שם כיתה חדשה (למשל ט׳1)\" style=\"max-width:260px\"><button class=\"primary\" data-act=\"add-class\">הוספת כיתה</button></div></div>';\n  if(!S.mClass) return h;\n  const c=D.cls(S.mClass);\n  const subs=D.subjectsOf(c.id); const studs=D.activeStudents().filter(s=>s.classId===c.id).sort(byName);\n  h+='<div class=\"row\" style=\"margin-top:18px\"><div class=\"grow title\" '+cvarsI(classIdx(c.name))+'><span style=\"color:var(--c)\">כיתה '+esc(c.name)+'</span></div><button data-act=\"rename-class\">שינוי שם הכיתה</button><button class=\"danger\" data-act=\"del-class\">מחיקת הכיתה</button></div>';\n  h+='<div class=\"two\">';\n  // מקצועות\n  h+='<div class=\"card\"><div class=\"sec-h a\"><span class=\"grow\">מקצועות ('+subs.length+')</span></div><ul class=\"list\">';\n  if(!subs.length) h+='<li class=\"muted\">עדיין אין מקצועות.</li>';\n  subs.forEach((s,si)=>{ h+='<li><span class=\"dot\" style=\"width:10px;height:10px;border-radius:50%;background:'+PAL[si%PAL.length][0]+'\"></span><span class=\"grow\">'+esc(s.name)+'</span><button class=\"ghost sm\" data-act=\"rename-subj\" data-id=\"'+esc(s.id)+'\">שינוי שם</button><button class=\"ghost red sm\" data-act=\"del-subj\" data-id=\"'+esc(s.id)+'\">מחיקה</button></li>'; });\n  h+='</ul><div class=\"pad\" style=\"border-top:1px solid var(--line)\"><div class=\"row\"><input id=\"new-subj\" class=\"grow\" placeholder=\"מקצוע חדש\"><button class=\"primary\" data-act=\"add-subj\">הוספה</button></div></div></div>';\n  // תלמידות\n  h+='<div class=\"card\"><div class=\"sec-h b\"><span class=\"grow\">תלמידות ('+studs.length+')</span>'+(studs.length?'<button class=\"ghost red sm\" data-act=\"remove-all\">הסרת כל התלמידות</button>':'')+'</div>';\n  h+='<div class=\"pad\" style=\"border-bottom:1px solid var(--line)\"><label class=\"f\" style=\"margin-top:0\" for=\"new-studs\">הוספת תלמידות — שם אחד בכל שורה</label><textarea id=\"new-studs\" placeholder=\"שרה כהן&#10;רחל לוי\"></textarea><button class=\"primary\" style=\"margin-top:8px\" data-act=\"add-studs\">הוספה</button></div>';\n  h+='<ul class=\"list\">';\n  if(!studs.length) h+='<li class=\"muted\">עדיין אין תלמידות.</li>';\n  for(const s of studs) h+='<li>'+avatar(s.name)+'<span class=\"grow\">'+esc(s.name)+'</span><button class=\"ghost sm\" data-act=\"edit-student\" data-id=\"'+esc(s.id)+'\">עריכה</button></li>';\n  h+='</ul></div></div>';\n  return h;\n}\n\n/* ================= חלונות ================= */\nfunction openModal(html){\n  const root=$('#modal-root');\n  root.innerHTML='<div class=\"backdrop\"><div class=\"modal\" role=\"dialog\">'+html+'</div></div>';\n  const bd=root.firstChild;\n  bd.addEventListener('mousedown',e=>{ if(e.target===bd) closeModal(); });\n  const f=root.querySelector('[autofocus]'); if(f) setTimeout(()=>f.focus(),30);\n  return root.querySelector('.modal');\n}\nfunction closeModal(){ $('#modal-root').innerHTML=''; }\ndocument.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });\n\nfunction confirmBox(title, text, okText){\n  return new Promise(res=>{\n    const m=openModal('<h3>'+esc(title)+'</h3><div class=\"muted\">'+text+'</div><div class=\"actions\"><button class=\"danger solid\" data-x=\"ok\">'+esc(okText||'מחיקה')+'</button><button data-x=\"no\">ביטול</button></div>');\n    m.querySelector('[data-x=ok]').onclick=()=>{closeModal();res(true);};\n    m.querySelector('[data-x=no]').onclick=()=>{closeModal();res(false);};\n  });\n}\nfunction promptBox(title, label, value){\n  return new Promise(res=>{\n    const m=openModal('<h3>'+esc(title)+'</h3><label class=\"f\">'+esc(label)+'</label><input id=\"pv\" autofocus value=\"'+esc(value||'')+'\"><div class=\"actions\"><button class=\"primary\" data-x=\"ok\">שמירה</button><button data-x=\"no\">ביטול</button></div>');\n    const ok=()=>{const v=m.querySelector('#pv').value.trim(); if(!v) return; closeModal(); res(v);};\n    m.querySelector('[data-x=ok]').onclick=ok;\n    m.querySelector('#pv').addEventListener('keydown',e=>{if(e.key==='Enter')ok();});\n    m.querySelector('[data-x=no]').onclick=()=>{closeModal();res(null);};\n  });\n}\n\nfunction absenceModal(existing, presetSubject){\n  const st=D.student(S.studentId);\n  const subs=D.subjectsOf(st.classId).slice();\n  if(existing && !subs.some(s=>s.id===existing.subjectId)) subs.push({id:existing.subjectId,name:existing.subjectName});\n  if(!subs.length){ toast('קודם צריך להוסיף מקצועות לכיתה',true); return; }\n  const sel = existing? existing.subjectId : (presetSubject || '');\n  let hours = new Set(existing? [Number(existing.hour)] : []);\n  const multi = !existing;\n  const m=openModal(\n    '<h3>'+(existing?'עריכת חיסור':'הוספת חיסור')+'</h3><div class=\"muted\">'+esc(st.name)+'</div>'\n    +'<label class=\"f\" for=\"a-sub\">מקצוע</label><select id=\"a-sub\"><option value=\"\">בחירת מקצוע…</option>'+subs.map(s=>'<option value=\"'+esc(s.id)+'\"'+(s.id===sel?' selected':'')+'>'+esc(s.name)+'</option>').join('')+'</select>'\n    +'<label class=\"f\" for=\"a-date\">תאריך</label><input id=\"a-date\" type=\"date\" value=\"'+esc(existing?existing.date:todayISO())+'\"><div class=\"preview\" id=\"a-prev\"></div>'\n    +'<label class=\"f\">שעה'+(multi?' <span class=\"muted small\">(אפשר לסמן כמה)</span>':'')+'</label><div class=\"hours\">'+HOURS.map((h,i)=>'<button type=\"button\" data-h=\"'+(i+1)+'\">'+h+'</button>').join('')+'</div>'\n    +'<label class=\"f\" for=\"a-note\">הערה</label><textarea id=\"a-note\" placeholder=\"למשל: הגיעה באמצע השיעור\">'+esc(existing?existing.note:'')+'</textarea>'\n    +'<div class=\"err\" id=\"a-err\"></div>'\n    +'<div class=\"actions\"><button class=\"primary\" id=\"a-save\">שמירה</button><button id=\"a-cancel\">ביטול</button></div>'\n  );\n  const paint=()=>m.querySelectorAll('[data-h]').forEach(b=>b.classList.toggle('on',hours.has(Number(b.dataset.h))));\n  paint();\n  m.querySelectorAll('[data-h]').forEach(b=>b.onclick=()=>{const h=Number(b.dataset.h); if(multi){hours.has(h)?hours.delete(h):hours.add(h);} else hours=new Set([h]); paint();});\n  const di=m.querySelector('#a-date');\n  const prev=()=>{ const v=di.value; m.querySelector('#a-prev').textContent = v ? dayName(v)+' · '+hebDate(v,true)+' · '+greg(v) : ''; };\n  di.addEventListener('input',prev); di.addEventListener('change',prev); prev();\n  m.querySelector('#a-cancel').onclick=closeModal;\n  m.querySelector('#a-save').onclick=async()=>{\n    const err=m.querySelector('#a-err'); err.textContent='';\n    const subjectId=m.querySelector('#a-sub').value, date=di.value, note=m.querySelector('#a-note').value.trim();\n    if(!subjectId) return err.textContent='יש לבחור מקצוע.';\n    if(!date) return err.textContent='יש לבחור תאריך.';\n    if(!hours.size) return err.textContent='יש לבחור שעה.';\n    const y=schoolYearOf(date);\n    if(String(y)!==String(S.currentYear)) return err.textContent='התאריך הזה שייך לשנת הלימודים '+yearLabel(y)+'. אפשר לרשום רק חיסורים של השנה הנוכחית ('+yearLabel(S.currentYear)+').';\n    // בדיקת כפילות: אותה תלמידה, אותו תאריך ואותה שעה\n    const clash=[...hours].filter(h=>S.data.absences.some(a=>a.studentId===st.id && a.date===date && Number(a.hour)===h && (!existing||a.id!==existing.id)));\n    if(clash.length) return err.textContent='כבר רשום חיסור לתלמידה בתאריך הזה ב'+clash.map(hourName).join(', ')+'.';\n    const base={studentId:st.id,subjectId,date,hebDate:hebDate(date,true),note,year:String(y)};\n    const btn=m.querySelector('#a-save'); btn.disabled=true;\n    try{\n      if(existing) await call('updateAbsence',{...base,id:existing.id,hour:[...hours][0]});\n      else await call('addAbsences',{...base,hours:[...hours].sort((a,b)=>a-b)});\n      S.open.add(subjectId); closeModal(); render();\n    }catch(e){ btn.disabled=false; err.textContent=(e&&e.message||String(e)).replace(/^Error:\\s*/,''); }\n  };\n}\n\nfunction studentModal(id){\n  const st=D.student(id); const classes=D.classes();\n  const m=openModal('<h3>עריכת פרטי תלמידה</h3>'\n    +'<label class=\"f\" for=\"s-name\">שם</label><input id=\"s-name\" autofocus value=\"'+esc(st.name)+'\">'\n    +'<label class=\"f\" for=\"s-cls\">כיתה</label><select id=\"s-cls\">'+classes.map(c=>'<option value=\"'+esc(c.id)+'\"'+(c.id===st.classId?' selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>'\n    +'<div class=\"muted small\" style=\"margin-top:6px\">החיסורים שכבר נרשמו נשארים שמורים גם אם מעבירים כיתה.</div>'\n    +'<div class=\"err\" id=\"s-err\"></div>'\n    +'<div class=\"actions\"><button class=\"primary\" id=\"s-save\">שמירה</button><button id=\"s-cancel\">ביטול</button><span class=\"grow\"></span><button class=\"danger\" id=\"s-del\">הסרת התלמידה</button></div>');\n  m.querySelector('#s-cancel').onclick=closeModal;\n  m.querySelector('#s-save').onclick=async()=>{\n    const name=m.querySelector('#s-name').value.trim(); if(!name) return m.querySelector('#s-err').textContent='יש להזין שם.';\n    try{ await call('updateStudent',{id,name,classId:m.querySelector('#s-cls').value}); closeModal(); render(); }catch(e){}\n  };\n  m.querySelector('#s-del').onclick=async()=>{\n    closeModal();\n    const n=D.absOf(id).length;\n    if(await confirmBox('הסרת '+st.name,'התלמידה תוסר מהרשימות.'+(n?' '+n+' החיסורים שלה יישארו שמורים בגיליון.':''),'הסרה')){\n      await call('deleteStudent',{id}); if(S.screen==='student') go('class',{classKey:st.classId});\n    }\n  };\n}\n\n/* ================= דוחות ================= */\nfunction reportData(students){\n  // מחזיר לכל תלמידה את הקבוצות, וגם את רשימת המקצועות המאוחדת לעמודות\n  const rows=students.map(s=>{const g=D.groups(s);return {name:s.name,groups:g,total:g.reduce((n,x)=>n+x.items.length,0)};});\n  const cols=[]; rows.forEach(r=>r.groups.forEach(g=>{ if(!cols.includes(g.name)) cols.push(g.name); }));\n  return {rows,cols};\n}\nfunction stuBlock(r, cls){\n  let h='<div class=\"stu\"><h3>'+esc(r.name)+(cls?' — כיתה '+esc(cls):'')+' · סה״כ '+r.total+' חיסורים</h3>';\n  for(const g of r.groups){ if(!g.items.length) continue;\n    h+='<h4>'+esc(g.name)+' ('+g.items.length+')</h4><table><tr><th>תאריך עברי</th><th>תאריך</th><th>יום</th><th>שעה</th><th>הערה</th></tr>';\n    for(const a of g.items) h+='<tr><td>'+esc(hebDate(a.date))+'</td><td>'+esc(greg(a.date))+'</td><td>'+esc(dayName(a.date))+'</td><td>'+esc(HOURS[a.hour-1]||a.hour)+'</td><td>'+esc(a.note)+'</td></tr>';\n    h+='</table>';\n  }\n  return h+'</div>';\n}\nfunction printNow(html){\n  $('#print-area').innerHTML='<div class=\"rp\">'+html+'</div>';\n  setTimeout(()=>window.print(),50);\n}\nconst stamp=()=>'שנת לימודים '+yearLabel(S.year)+' · הופק ב-'+hebDate(todayISO(),true)+' ('+greg(todayISO())+')';\nfunction printClass(){\n  const name=D.className(S.classKey);\n  const {rows,cols}=reportData(D.members(S.classKey).sort(byName));\n  let h='<h1>דוח חיסורים — כיתה '+esc(name)+'</h1><div class=\"sub\">'+stamp()+'</div>';\n  h+='<table><tr><th class=\"num\">#</th><th>שם</th>'+cols.map(c=>'<th class=\"num\">'+esc(c)+'</th>').join('')+'<th class=\"num\">סה״כ</th></tr>';\n  rows.forEach((r,i)=>{ h+='<tr><td class=\"num\">'+(i+1)+'</td><td>'+esc(r.name)+'</td>'+cols.map(c=>{const g=r.groups.find(x=>x.name===c);return '<td class=\"num\">'+(g&&g.items.length?g.items.length:'')+'</td>';}).join('')+'<td class=\"num\"><b>'+r.total+'</b></td></tr>'; });\n  h+='</table>';\n  const withAbs=rows.filter(r=>r.total);\n  if(withAbs.length){ h+='<div class=\"pb\"></div><h1 style=\"font-size:15pt\">פירוט לפי תלמידה</h1>'; withAbs.forEach(r=>h+=stuBlock(r)); }\n  printNow(h);\n}\nfunction printStudent(){\n  const st=currentStudent(); const {rows}=reportData([st]);\n  let h='<h1>דוח חיסורים — '+esc(st.name)+'</h1><div class=\"sub\">כיתה '+esc(st.className)+' · '+stamp()+'</div>';\n  h+='<table><tr><th>מקצוע</th><th class=\"num\">חיסורים</th><th>הערות</th></tr>'+rows[0].groups.map(g=>'<tr><td>'+esc(g.name)+'</td><td class=\"num\">'+g.items.length+'</td><td class=\"nt\">'+esc(notesOf(g.items))+'</td></tr>').join('')+'<tr><th>סה״כ</th><th class=\"num\">'+rows[0].total+'</th><th></th></tr></table>';\n  h+=stuBlock(rows[0]);\n  printNow(h);\n}\nfunction notesOf(items){ return items.filter(a=>a.note).map(a=>hebDate(a.date)+', '+hourName(a.hour)+' – '+a.note).join(' · '); }\nfunction notesBySubject(groups){ return groups.filter(g=>g.items.some(a=>a.note)).map(g=>g.name+': '+notesOf(g.items)).join('\\n'); }\nfunction xlWidths(header, rows, wrapCols){\n  return header.map((h,i)=>{ const m=Math.max(String(h).length, ...rows.map(r=>Math.max(...String(r[i]==null?'':r[i]).split('\\n').map(x=>x.length))));\n    let w=Math.min(360, Math.max(64, Math.round(m*8.5)+28)); if((wrapCols||[]).includes(i)) w=Math.min(Math.max(w,200),320); return w; });\n}\nfunction xlSheet(name, title, subtitle, header, rows, o){\n  o=o||{}; const extra=(o.footer?[o.footer]:[]).concat((o.info||[]).map(kv=>[kv[0],o.info.length&&header.length<=2?kv[1]:'']));\n  return {name, title, subtitle, header, rows, info:o.info||null, footer:o.footer||null, countCols:o.countCols||[], totalCol:(o.totalCol==null?-1:o.totalCol),\n          centerCols:o.centerCols||[], wrapCols:o.wrapCols||[], widths:xlWidths(header, rows.concat(extra), o.wrapCols).map(w=>header.length<=2?Math.max(w,230):w)};\n}\nasync function exportXlsx(scope){\n  const stampTxt='שנת לימודים '+yearLabel(S.year)+'  ·  הופק ב-'+hebDate(todayISO(),true)+' ('+greg(todayISO())+')';\n  const hourTxt=a=>HOURS[a.hour-1]||a.hour;\n  let sheets=[], title;\n  if(scope==='student'){\n    const st=currentStudent(); const r0=reportData([st]).rows[0];\n    title='חיסורים - '+st.name;\n    sheets.push(xlSheet('סיכום','דוח חיסורים — '+st.name, stampTxt, ['מקצוע','מספר חיסורים','הערות'],\n      r0.groups.map(g=>[g.name,g.items.length,notesOf(g.items)]),\n      {info:[['שם התלמידה',st.name],['כיתה',st.className],['סה״כ חיסורים',r0.total]], countCols:[1], wrapCols:[2], footer:['סה״כ',r0.total,'']}));\n    const det=[]; r0.groups.forEach(g=>g.items.forEach(a=>det.push([g.name,hebDate(a.date),greg(a.date),dayName(a.date),hourTxt(a),a.note||''])));\n    sheets.push(xlSheet('פירוט לפי מקצוע','פירוט חיסורים לפי מקצוע — '+st.name, stampTxt, ['מקצוע','תאריך עברי','תאריך','יום','שעה','הערה'], det, {wrapCols:[5]}));\n    const bd=r0.groups.flatMap(g=>g.items.map(a=>({a,g}))).sort((x,y)=>byWhen(x.a,y.a)).map(({a,g})=>[hebDate(a.date),greg(a.date),dayName(a.date),hourTxt(a),g.name,a.note||'']);\n    sheets.push(xlSheet('לפי תאריך','חיסורים לפי סדר תאריכים — '+st.name, stampTxt, ['תאריך עברי','תאריך','יום','שעה','מקצוע','הערה'], bd, {wrapCols:[5]}));\n  } else if(scope==='class'){\n    const name=D.className(S.classKey); title='חיסורים - כיתה '+name;\n    const {rows,cols}=reportData(D.members(S.classKey).sort(byName));\n    const sum=rows.map((r,i)=>[i+1,r.name,...cols.map(c=>{const g=r.groups.find(x=>x.name===c);return g?g.items.length:0;}),r.total]);\n    const colTotals=cols.map((_,j)=>sum.reduce((n,row)=>n+row[2+j],0));\n    sheets.push(xlSheet('סיכום','דוח חיסורים — כיתה '+name, stampTxt, ['#','שם התלמידה',...cols,'סה״כ'], sum,\n      {centerCols:[0], countCols:cols.map((_,j)=>2+j), totalCol:2+cols.length, footer:['','סה״כ כיתה',...colTotals,colTotals.reduce((a,b)=>a+b,0)]}));\n    const det=[]; rows.forEach(r=>r.groups.forEach(g=>g.items.forEach(a=>det.push([r.name,g.name,hebDate(a.date),greg(a.date),dayName(a.date),hourTxt(a),a.note||'']))));\n    sheets.push(xlSheet('פירוט','פירוט חיסורים — כיתה '+name, stampTxt, ['שם התלמידה','מקצוע','תאריך עברי','תאריך','יום','שעה','הערה'], det, {wrapCols:[6]}));\n  } else {\n    title='חיסורים - כל הכיתות';\n    const people=[]; D.classList().forEach(c=>D.members(c.key).sort(byName).forEach(p=>{ if(!people.some(x=>x.id===p.id)) people.push({...p,cls:c.name}); }));\n    const {rows}=reportData(people); rows.forEach((r,i)=>r.cls=people[i].cls);\n    const sum=rows.map((r,i)=>[i+1,r.name,r.cls,r.total,r.groups.filter(g=>g.items.length).map(g=>g.name+' '+g.items.length).join(' · ')]);\n    const total=rows.reduce((n,r)=>n+r.total,0);\n    sheets.push(xlSheet('כל התלמידות','דוח חיסורים — כל הכיתות', stampTxt, ['#','שם התלמידה','כיתה','סה״כ חיסורים','פירוט לפי מקצוע'], sum,\n      {centerCols:[0,2], totalCol:3, wrapCols:[4], footer:['','סה״כ','',total,'']}));\n    const byCls=D.classList().map(c=>{const m=rows.filter(r=>r.cls===c.name); const t=m.reduce((n,r)=>n+r.total,0); return [c.name,m.length,t,m.length?Math.round(t/m.length*10)/10:0];});\n    sheets.push(xlSheet('לפי כיתה','סיכום לפי כיתה', stampTxt, ['כיתה','מספר תלמידות','סה״כ חיסורים','ממוצע לתלמידה'], byCls,\n      {centerCols:[0,1,3], totalCol:2, footer:['סה״כ',rows.length,total,rows.length?Math.round(total/rows.length*10)/10:0]}));\n    const det=[]; rows.forEach(r=>r.groups.forEach(g=>g.items.forEach(a=>det.push([r.name,r.cls,g.name,hebDate(a.date),greg(a.date),dayName(a.date),hourTxt(a),a.note||'']))));\n    sheets.push(xlSheet('פירוט','פירוט כל החיסורים', stampTxt, ['שם התלמידה','כיתה','מקצוע','תאריך עברי','תאריך','יום','שעה','הערה'], det, {centerCols:[1],wrapCols:[7]}));\n  }\n  title += ' - '+yearLabel(S.year)+' - '+greg(todayISO()).replace(/\\//g,'.');\n  const r=await call('exportReport',{title,sheets});\n  if(r.downloaded) return;\n  const m=openModal('<h3>קובץ האקסל מוכן</h3><div class=\"muted\">לחצי על הכפתור הירוק כדי להוריד את הקובץ למחשב. עותק נשמר גם ב-Google Drive.</div><div class=\"actions\"><a href=\"'+esc(r.xlsx)+'\" target=\"_blank\" rel=\"noopener\"><button class=\"primary\" style=\"background:#1d6f42;box-shadow:none\">הורדה כקובץ אקסל</button></a><a href=\"'+esc(r.url)+'\" target=\"_blank\" rel=\"noopener\"><button>פתיחה בגוגל שיטס</button></a><button id=\"x-close\">סגירה</button></div>');\n  m.querySelector('#x-close').onclick=closeModal;\n}\n\n/* ================= פעולות ================= */\nconst ACT = {\n  'home': ()=>go('home'),\n  'manage': ()=>{ if(!canEdit()) return; if(isArchive()){ S.year=S.currentYear; reload().then(()=>go('manage')); } else go('manage'); },\n  'open-class': el=>go('class',{classKey:el.dataset.id}),\n  'open-student': el=>go('student',{studentId:el.dataset.id, open:new Set()}),\n  'toggle': el=>{ const k=el.dataset.key; S.open.has(k)?S.open.delete(k):S.open.add(k); render(); },\n  'add-abs': el=>absenceModal(null, el.dataset.subject),\n  'edit-abs': el=>absenceModal(S.data.absences.find(a=>a.id===el.dataset.id)),\n  'del-abs': async el=>{\n    const a=S.data.absences.find(x=>x.id===el.dataset.id);\n    if(await confirmBox('מחיקת חיסור', esc(a.subjectName)+' — '+esc(fullWhen(a)))) await call('deleteAbsence',{id:a.id});\n  },\n  'edit-student': el=>studentModal(el.dataset.id),\n  'print-class': printClass,\n  'print-student': printStudent,\n  'export-class': ()=>exportXlsx('class').catch(()=>{}),\n  'export-student': ()=>exportXlsx('student').catch(()=>{}),\n  'export-all': ()=>exportXlsx('all').catch(()=>{}),\n  'manage-class': el=>go('manage',{mClass:el.dataset.id}),\n  'm-pick': el=>{ S.mClass=el.dataset.id; render(); },\n  'add-class': async()=>{\n    const v=$('#new-class').value.trim(); if(!v) return;\n    const r=await call('addClass',{name:v}).catch(()=>null); if(r&&r.id){ S.mClass=r.id; render(); setTimeout(()=>$('#new-subj')&&$('#new-subj').focus(),30);} },\n  'rename-class': async()=>{ const c=D.cls(S.mClass); const v=await promptBox('שינוי שם כיתה','שם חדש',c.name); if(v&&v!==c.name) await call('renameClass',{id:c.id,name:v}).catch(()=>{}); },\n  'del-class': async()=>{ const c=D.cls(S.mClass);\n    if(D.activeStudents().some(s=>s.classId===c.id)) return toast('יש תלמידות בכיתה. קודם צריך להעביר או להסיר אותן.',true);\n    if(await confirmBox('מחיקת כיתה '+c.name,'הכיתה והמקצועות שלה יוסרו.')) await call('deleteClass',{id:c.id}).catch(()=>{}); },\n  'add-subj': async()=>{ const v=$('#new-subj').value.trim(); if(!v) return; await call('addSubject',{classId:S.mClass,name:v}).catch(()=>{}); setTimeout(()=>$('#new-subj')&&$('#new-subj').focus(),30); },\n  'rename-subj': async el=>{ const s=S.data.subjects.find(x=>x.id===el.dataset.id); const v=await promptBox('שינוי שם מקצוע','שם חדש',s.name); if(v&&v!==s.name) await call('renameSubject',{id:s.id,name:v}).catch(()=>{}); },\n  'del-subj': async el=>{ const s=S.data.subjects.find(x=>x.id===el.dataset.id); const n=S.data.absences.filter(a=>a.subjectId===s.id).length;\n    if(await confirmBox('מחיקת המקצוע '+s.name,'המקצוע יוסר מהכיתה.'+(n?' '+n+' חיסורים שכבר נרשמו בו יישארו שמורים ויוצגו אצל התלמידות.':''))) await call('deleteSubject',{id:s.id}).catch(()=>{}); },\n  'add-studs': async()=>{ const names=$('#new-studs').value.split(/\\r?\\n/).map(s=>s.trim()).filter(Boolean); if(!names.length) return; await call('addStudents',{classId:S.mClass,names}).catch(()=>{}); },\n  'remove-all': async()=>{ const c=D.cls(S.mClass); const n=D.activeStudents().filter(s=>s.classId===c.id).length;\n    if(await confirmBox('הסרת כל התלמידות מכיתה '+c.name, n+' תלמידות יוסרו מהרשימות (למשל בסיום לימודים). כל החיסורים שלהן יישארו שמורים בארכיון.','הסרת כולן')) await call('removeClassStudents',{classId:c.id}).catch(()=>{}); },\n};\ndocument.addEventListener('click',e=>{ const el=e.target.closest('[data-act]'); if(!el) return; e.preventDefault(); const f=ACT[el.dataset.act]; if(f) f(el,e); });\ndocument.addEventListener('change',e=>{\n  if(e.target.id==='sort'){ S.sortBy=e.target.value; render(); }\n  if(e.target.id==='year'){ S.year=e.target.value; S.screen='home'; reload(); }\n});\ndocument.addEventListener('keydown',e=>{\n  if(e.key!=='Enter') return;\n  if(e.target.id==='new-class') ACT['add-class']();\n  if(e.target.id==='new-subj') ACT['add-subj']();\n});\ndocument.addEventListener('input',e=>{\n  if(e.target.id!=='q') return;\n  const q=e.target.value.trim(); const box=$('#results');\n  if(!q){ box.innerHTML=''; return; }\n  const found=D.allSearchable().filter(s=>s.name.includes(q)).sort(byName).slice(0,30);\n  box.innerHTML='<div class=\"card results\"><ul class=\"list\">'+(found.length?found.map(s=>'<li class=\"click\" data-act=\"open-student\" data-id=\"'+esc(s.id)+'\">'+avatar(s.name)+'<span class=\"grow\">'+esc(s.name)+'</span><span class=\"muted small\">'+esc(s.cls)+'</span>'+badge(D.absOf(s.id).length)+'</li>').join(''):'<li class=\"muted\">לא נמצאו תלמידות</li>')+'</ul></div>';\n});\n\nasync function reload(){ setBusy(true); try{ S.data = await api('getData'); render(); } catch(e){ $('#app').innerHTML='<div class=\"card empty\">שגיאה בטעינת הנתונים:<br>'+esc((e&&e.message)||e)+'</div>'; } finally{ setBusy(false); } }\n\n\nS.currentYear = String(schoolYearOf(todayISO()));\nS.year = S.currentYear;\nreload();\n</script>\n</body>\n</html>\n";
